@@ -41,8 +41,17 @@ elif [ -d "venv" ]; then
     . venv/bin/activate
 fi
 
-python --version
-python -c "import torch; print('  torch=' + torch.__version__ + ', CUDA=' + str(torch.cuda.is_available()) + ', device_count=' + str(torch.cuda.device_count()))"
+# Bypass broken `source activate` by pinning python to ml_env directly. If
+# activation did work, this still resolves to the same interpreter.
+PY="/work/pnag/envs/ml_env/bin/python"
+if [ ! -x "${PY}" ]; then
+    PY="$(command -v python)"
+fi
+export PATH="/work/pnag/envs/ml_env/bin:${PATH}"
+
+echo "python: ${PY}"
+${PY} --version
+${PY} -c "import sys,torch,datasets,transformers; print('  ',sys.executable); print('  torch=',torch.__version__,'cuda?',torch.cuda.is_available()); print('  datasets=',datasets.__version__,'transformers=',transformers.__version__)"
 
 if [ -d "/work/pnag/Expert-Model-Merging" ]; then
     cd /work/pnag/Expert-Model-Merging/
@@ -80,7 +89,7 @@ log_msg "------------------------------------------------------------"
 log_msg " Step 1: Fine-tune RoBERTa experts + collect Fisher/Grams"
 log_msg "------------------------------------------------------------"
 
-python scripts/lm_train_experts.py \
+${PY} scripts/lm_train_experts.py \
     --config "${CONFIG}" \
     --device cuda 2>&1 | tee -a "${LOG_FILE}"
 EXIT_CODE=${PIPESTATUS[0]:-$?}
@@ -101,7 +110,7 @@ log_msg "------------------------------------------------------------"
 log_msg " Step 2: Run merging methods"
 log_msg "------------------------------------------------------------"
 
-python scripts/lm_run_merging.py \
+${PY} scripts/lm_run_merging.py \
     --config "${CONFIG}" \
     --device cuda 2>&1 | tee -a "${LOG_FILE}"
 EXIT_CODE=${PIPESTATUS[0]:-$?}
@@ -122,7 +131,7 @@ log_msg "------------------------------------------------------------"
 log_msg " Step 3: Generate figures (PNG + SVG)"
 log_msg "------------------------------------------------------------"
 
-python scripts/lm_make_figures.py \
+${PY} scripts/lm_make_figures.py \
     --config "${CONFIG}" 2>&1 | tee -a "${LOG_FILE}"
 EXIT_CODE=${PIPESTATUS[0]:-$?}
 
