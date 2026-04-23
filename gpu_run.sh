@@ -50,12 +50,28 @@ fi
 cd "$REPO_ROOT"
 mkdir -p logs results/logs results/glue/figures/png results/glue/figures/svg
 
+# ── Env preflight: fail loudly with a useful message if env is broken ─────
+set -e
+PY="$(which python 2>/dev/null || true)"
+if [ -z "$PY" ]; then
+  echo "ERR: no python on PATH after 'source activate $PY_ENV'"
+  echo "     HINT: recreate the env and verify 'which python' points inside it."
+  exit 1
+fi
+python - <<'PYCHECK' || { echo "ERR: env is missing required packages"; exit 1; }
+import sys, torch, transformers, datasets, sklearn, sentencepiece, yaml
+print("  python :", sys.executable)
+print("  torch  :", torch.__version__, "cuda?", torch.cuda.is_available())
+print("  trf    :", transformers.__version__)
+print("  ds     :", datasets.__version__)
+PYCHECK
+set +e
+
 echo "============================================"
 echo "WHC-GLUE Merging Experiment"
 echo "  Array task:  ${SLURM_ARRAY_TASK_ID:-standalone}"
 echo "  Repo:        $REPO_ROOT"
 echo "  Config:      $CONFIG"
-echo "  Python:      $(which python) ($(python --version 2>&1))"
 echo "  GPU:         $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null || echo 'unknown')"
 echo "  Started:     $(date)"
 echo "============================================"
