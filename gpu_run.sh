@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=whc_glue
-#SBATCH --chdir=/work/pnag/Expert-Model-Merging
+#SBATCH -D /work/pnag/Expert-Model-Merging
 #SBATCH -N 1
 #SBATCH -n 8
 #SBATCH --gres=gpu:1
