@@ -1,11 +1,12 @@
-#!/bin/sh
+#!/bin/bash
 #SBATCH --job-name=whc_glue
+#SBATCH --chdir=/work/pnag/Expert-Model-Merging
 #SBATCH -N 1
 #SBATCH -n 8
 #SBATCH --gres=gpu:1
 #SBATCH --mem=48G
-#SBATCH --output logs/whc_glue_%A_%a.out
-#SBATCH --error  logs/whc_glue_%A_%a.err
+#SBATCH --output=/work/pnag/Expert-Model-Merging/logs/whc_glue_%A_%a.out
+#SBATCH --error=/work/pnag/Expert-Model-Merging/logs/whc_glue_%A_%a.err
 #SBATCH -p gpu
 #SBATCH --exclusive
 #SBATCH --time=20:00:00
