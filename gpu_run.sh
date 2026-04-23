@@ -35,23 +35,13 @@ export HF_HUB_DISABLE_PROGRESS_BARS=1
 module load cuda/12.3 2>/dev/null || true
 module load python3/anaconda/2023.9 2>/dev/null || true
 
-if [ -d "/work/pnag/envs/ml_env" ]; then
-    source activate /work/pnag/envs/ml_env/
-elif [ -d "venv" ]; then
-    . venv/bin/activate
-fi
-
-# Bypass broken `source activate` by pinning python to ml_env directly. If
-# activation did work, this still resolves to the same interpreter.
-PY="/work/pnag/envs/ml_env/bin/python"
-if [ ! -x "${PY}" ]; then
-    PY="$(command -v python)"
-fi
-export PATH="/work/pnag/envs/ml_env/bin:${PATH}"
+# Use the anaconda module's python. Newer packages (datasets, pyarrow,
+# huggingface-hub) are pip-installed to ~/.local and shadow the system ones.
+PY="$(command -v python)"
 
 echo "python: ${PY}"
 ${PY} --version
-${PY} -c "import sys,torch,datasets,transformers; print('  ',sys.executable); print('  torch=',torch.__version__,'cuda?',torch.cuda.is_available()); print('  datasets=',datasets.__version__,'transformers=',transformers.__version__)"
+${PY} -c "import sys,torch,datasets,transformers,huggingface_hub; print('  ',sys.executable); print('  torch=',torch.__version__,'cuda?',torch.cuda.is_available()); print('  datasets=',datasets.__version__,'transformers=',transformers.__version__,'hub=',huggingface_hub.__version__)"
 
 if [ -d "/work/pnag/Expert-Model-Merging" ]; then
     cd /work/pnag/Expert-Model-Merging/
