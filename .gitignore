@@ -47,3 +47,10 @@ results/smoke/*/cache/
 
 # ── Notebook checkpoints ───────────────────────────────────────────────
 .ipynb_checkpoints/
+# SLURM job artifacts
+job*.out
+job*.err
+
+# Heavy run artifacts not tracked in git
+checkpoints/
+results/logs/
