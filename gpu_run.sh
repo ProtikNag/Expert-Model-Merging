@@ -1,102 +1,146 @@
-#!/bin/bash
+#!/bin/sh
 #SBATCH --job-name=whc_glue
-#SBATCH -D /work/pnag/Expert-Model-Merging
 #SBATCH -N 1
 #SBATCH -n 8
 #SBATCH --gres=gpu:1
 #SBATCH --mem=48G
-#SBATCH --output=/work/pnag/Expert-Model-Merging/logs/whc_glue_%A_%a.out
-#SBATCH --error=/work/pnag/Expert-Model-Merging/logs/whc_glue_%A_%a.err
+#SBATCH --output job%j.%N.out
+#SBATCH --error  job%j.%N.err
 #SBATCH -p gpu
-#SBATCH --exclusive
 #SBATCH --time=20:00:00
-#SBATCH --array=0
 
 # =============================================================================
 # WHC vs. recent model-merging baselines on GLUE + RoBERTa-base.
-#
-# One-seed run (per user request). Full pipeline:
+# One-seed run. Full pipeline:
 #   1. Fine-tune one RoBERTa expert per GLUE task.
 #   2. Collect diagonal empirical Fisher and per-Linear activation Grams.
 #   3. Merge with every method (Simple, TA, TIES, Fisher, Fisher+epsI,
 #      RegMean, RegMean++, WHC-A/B/C/D in dataless and Fisher flavors).
-#   4. Generate figures (PNG + SVG in separate folders).
+#   4. Generate figures (PNG + SVG).
 #
 # Usage:
-#   cd <REPO_ROOT>
 #   sbatch gpu_run.sh
-# Override the repo root / python env with REPO_ROOT= and PY_ENV= below.
 # =============================================================================
 
 hostname
 date
 
+# -- GPU / Environment --------------------------------------------------------
+
+export CUDA_VISIBLE_DEVICES=0
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export TOKENIZERS_PARALLELISM=false
 export HF_HUB_DISABLE_PROGRESS_BARS=1
 
-# Load cluster modules if available (ignore errors on non-SLURM hosts).
-module load cuda/12.3      2>/dev/null || true
+module load cuda/12.3 2>/dev/null || true
 module load python3/anaconda/2023.9 2>/dev/null || true
 
-# ── Environment (override via env vars as needed) ────────────────────────
-REPO_ROOT="${REPO_ROOT:-$(pwd)}"
-PY_ENV="${PY_ENV:-/work/pnag/envs/ml_env}"
+if [ -d "/work/pnag/envs/ml_env" ]; then
+    source activate /work/pnag/envs/ml_env/
+elif [ -d "venv" ]; then
+    . venv/bin/activate
+fi
+
+python --version
+python -c "import torch; print('  torch=' + torch.__version__ + ', CUDA=' + str(torch.cuda.is_available()) + ', device_count=' + str(torch.cuda.device_count()))"
+
+if [ -d "/work/pnag/Expert-Model-Merging" ]; then
+    cd /work/pnag/Expert-Model-Merging/
+fi
+
+set -e
+
 CONFIG="${CONFIG:-configs/glue_roberta.yaml}"
 
-if [ -d "$PY_ENV" ]; then
-  source activate "$PY_ENV" 2>/dev/null || conda activate "$PY_ENV" 2>/dev/null || true
-fi
+mkdir -p results/logs results/glue/figures/png results/glue/figures/svg
 
-cd "$REPO_ROOT"
-mkdir -p logs results/logs results/glue/figures/png results/glue/figures/svg
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+LOG_DIR="results/logs/whc_glue_${TIMESTAMP}"
+mkdir -p "${LOG_DIR}"
+LOG_FILE="${LOG_DIR}/run.log"
 
-# ── Env preflight: fail loudly with a useful message if env is broken ─────
-set -e
-PY="$(which python 2>/dev/null || true)"
-if [ -z "$PY" ]; then
-  echo "ERR: no python on PATH after 'source activate $PY_ENV'"
-  echo "     HINT: recreate the env and verify 'which python' points inside it."
-  exit 1
-fi
-python - <<'PYCHECK' || { echo "ERR: env is missing required packages"; exit 1; }
-import sys, torch, transformers, datasets, sklearn, sentencepiece, yaml
-print("  python :", sys.executable)
-print("  torch  :", torch.__version__, "cuda?", torch.cuda.is_available())
-print("  trf    :", transformers.__version__)
-print("  ds     :", datasets.__version__)
-PYCHECK
-set +e
+log_msg() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "${LOG_FILE}"
+}
 
-echo "============================================"
-echo "WHC-GLUE Merging Experiment"
-echo "  Array task:  ${SLURM_ARRAY_TASK_ID:-standalone}"
-echo "  Repo:        $REPO_ROOT"
-echo "  Config:      $CONFIG"
-echo "  GPU:         $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null || echo 'unknown')"
-echo "  Started:     $(date)"
-echo "============================================"
+log_msg "============================================================"
+log_msg " WHC-GLUE Merging Experiment"
+log_msg "============================================================"
+log_msg " Config:   ${CONFIG}"
+log_msg " GPU:      $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null || echo 'unknown')"
+log_msg " Log:      ${LOG_FILE}"
+log_msg "============================================================"
 
-# ── Stage 1: fine-tune experts and collect statistics ──────────────────────
+# -----------------------------------------------------------------------------
+# STEP 1: Fine-tune experts and collect statistics
+# -----------------------------------------------------------------------------
+
+log_msg ""
+log_msg "------------------------------------------------------------"
+log_msg " Step 1: Fine-tune RoBERTa experts + collect Fisher/Grams"
+log_msg "------------------------------------------------------------"
+
 python scripts/lm_train_experts.py \
-    --config "$CONFIG" \
-    --device cuda
+    --config "${CONFIG}" \
+    --device cuda 2>&1 | tee -a "${LOG_FILE}"
+EXIT_CODE=${PIPESTATUS[0]:-$?}
 
-# ── Stage 2: run every merging method, tune on val, report on test ─────────
+if [ ${EXIT_CODE} -ne 0 ]; then
+    log_msg "FAILED: expert training (exit code ${EXIT_CODE})"
+    exit ${EXIT_CODE}
+fi
+
+log_msg "Expert training complete."
+
+# -----------------------------------------------------------------------------
+# STEP 2: Run every merging method, tune on val, report on test
+# -----------------------------------------------------------------------------
+
+log_msg ""
+log_msg "------------------------------------------------------------"
+log_msg " Step 2: Run merging methods"
+log_msg "------------------------------------------------------------"
+
 python scripts/lm_run_merging.py \
-    --config "$CONFIG" \
-    --device cuda
+    --config "${CONFIG}" \
+    --device cuda 2>&1 | tee -a "${LOG_FILE}"
+EXIT_CODE=${PIPESTATUS[0]:-$?}
 
-# ── Stage 3: generate figures ──────────────────────────────────────────────
+if [ ${EXIT_CODE} -ne 0 ]; then
+    log_msg "FAILED: merging (exit code ${EXIT_CODE})"
+    exit ${EXIT_CODE}
+fi
+
+log_msg "Merging complete."
+
+# -----------------------------------------------------------------------------
+# STEP 3: Figures
+# -----------------------------------------------------------------------------
+
+log_msg ""
+log_msg "------------------------------------------------------------"
+log_msg " Step 3: Generate figures (PNG + SVG)"
+log_msg "------------------------------------------------------------"
+
 python scripts/lm_make_figures.py \
-    --config "$CONFIG"
+    --config "${CONFIG}" 2>&1 | tee -a "${LOG_FILE}"
+EXIT_CODE=${PIPESTATUS[0]:-$?}
 
-echo "============================================"
-echo "Completed at $(date)"
-echo "Artifacts:"
-echo "  checkpoints:  $(du -sh checkpoints/glue 2>/dev/null | cut -f1)"
-echo "  results:      $(du -sh results/glue 2>/dev/null | cut -f1)"
-echo "  logs:         $(ls results/logs/ 2>/dev/null | wc -l) files"
-echo "============================================"
+if [ ${EXIT_CODE} -ne 0 ]; then
+    log_msg "WARNING: figure generation failed (exit code ${EXIT_CODE})"
+fi
+
+# -----------------------------------------------------------------------------
+# Summary
+# -----------------------------------------------------------------------------
+
+log_msg ""
+log_msg "============================================================"
+log_msg " Completed at $(date)"
+log_msg "============================================================"
+log_msg " checkpoints: $(du -sh checkpoints/glue 2>/dev/null | cut -f1)"
+log_msg " results:     $(du -sh results/glue 2>/dev/null | cut -f1)"
+log_msg " log:         ${LOG_FILE}"
+log_msg "============================================================"
 
 date
