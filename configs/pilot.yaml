@@ -1,0 +1,41 @@
+seed: 42
+dataset:
+  name: rotated_mnist
+  root: ./data
+  rotations: [0, 45, 90, 135, 180, 225, 270, 315]   # 8 experts
+  num_classes: 10
+  image_size: 28
+model:
+  type: small_cnn
+  channels: [32, 64]
+  hidden: 128
+train:
+  pretrain_epochs: 2        # shared init trained on un-rotated MNIST
+  expert_epochs: 3          # each expert fine-tuned on its rotation
+  batch_size: 128
+  lr: 1.0e-3
+  weight_decay: 0.0
+  train_subset: 6000        # per-expert training subset (for CPU speed)
+  test_subset: 2000         # per-rotation test subset
+fisher:
+  n_samples: 1024           # samples used for diagonal Fisher estimate
+  use_true_label: true      # empirical Fisher
+merging:
+  task_arithmetic:
+    scale_sweep: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0]
+  ties:
+    k_sweep: [0.1, 0.2, 0.3, 0.5, 0.7]   # fraction of params to keep per task vec
+    scale_sweep: [0.3, 0.5, 0.7, 1.0]
+  regmean:
+    alpha: 0.9                   # off-diag scaling in Gram matrix
+    n_activation_samples: 512
+  htcl_a:
+    lam_sweep: [0.0, 1.0e-6, 1.0e-5, 1.0e-4, 1.0e-3, 1.0e-2, 1.0e-1, 1.0]
+  htcl_b:
+    fanout: 2                    # binary tree over experts
+    lam0: 1.0e-4                 # leaf-level regularization
+    rho: 0.5                     # per-level decay
+paths:
+  checkpoints: ./checkpoints
+  results: ./results
+  figures: ./results/figures

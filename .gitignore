@@ -1,0 +1,49 @@
+# ── Byte-compiled / build artifacts ────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.eggs/
+build/
+dist/
+.Python
+
+# ── Virtualenvs ────────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+.env
+
+# ── Editor / OS detritus ───────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── HuggingFace & torch caches (sometimes written inside repo) ─────────
+.cache/
+.hf_cache/
+
+# ── Data and large artifacts (never commit) ────────────────────────────
+data/
+checkpoints/
+*.pt
+!docs/*.pt                                # allow tiny demo tensors in docs
+*.bin
+*.safetensors
+*.ckpt
+
+# ── Run-specific logs and per-run metrics (regenerated each run) ───────
+results/logs/
+results/glue/                             # populated only on GPU runs
+results/smoke/checkpoints/
+
+# Allow the small smoke-test outputs that document the pipeline works,
+# but strip anything that can be regenerated trivially.
+results/smoke/*/cache/
+
+# ── Notebook checkpoints ───────────────────────────────────────────────
+.ipynb_checkpoints/

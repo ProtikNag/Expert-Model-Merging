@@ -1,0 +1,55 @@
+seed: 42
+experiment: glue_smoke
+model:
+  name: distilbert-base-uncased  # 6 layers, 768 hidden; ~66M params
+  head_dropout: 0.1
+data:
+  tasks: [mrpc, rte]            # 2 small pair-classification tasks
+  max_length: 64
+  batch_size: 16
+  train_subset: 128             # tiny for smoke test
+  val_subset: 64
+train:
+  epochs: 1
+  lr: 5.0e-5
+  weight_decay: 0.01
+  warmup_ratio: 0.0
+fisher:
+  n_samples: 48
+  batch_size: 4
+grams:
+  n_samples: 48
+  batch_size: 16
+merging:
+  curvature_source: taskvec
+  n_hparams_per_method: 3
+  task_arith:
+    scale_grid: [0.2, 0.4, 0.8]
+  ties:
+    keep_frac_grid: [0.2, 0.5]
+    scale_grid: [0.5, 1.0]
+  regmean:
+    alpha_grid: [0.0, 0.9, 1.0]
+  regmean_plus:
+    alpha_grid: [0.9]           # layer-sweep is expensive; one setting
+  fisher_merge:
+    placeholder: [null]
+  fisher_ridge:
+    eps_grid: [1.0e-6, 1.0e-4, 1.0e-2]
+  whc_a:
+    lam_grid: [1.0e-6, 1.0e-4, 1.0e-2]
+  whc_b:
+    lam0_grid: [1.0e-6, 1.0e-4]
+    rho_grid: [0.5]
+    fanout: 2
+  whc_c:
+    lam0_grid: [1.0e-6, 1.0e-4]
+    rho_grid: [0.5]
+  whc_d:
+    lam_grid: [1.0e-6, 1.0e-4, 1.0e-2]
+    order: natural
+paths:
+  checkpoints: ./checkpoints/smoke
+  results: ./results/smoke
+  figures: ./results/smoke/figures
+  logs: ./results/logs
