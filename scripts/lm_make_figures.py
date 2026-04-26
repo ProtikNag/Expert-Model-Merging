@@ -6,13 +6,11 @@ Figures produced (each as PNG under ``figures/png/`` and SVG under
 1. ``fig_methods_bar``              : avg test primary per method, grouped
    by tier (dataless vs. statistics-using).
 2. ``fig_methods_per_task_heatmap`` : per-task primary for every method.
-3. ``fig_whc_lambda_sensitivity``   : WHC-A (dataless) sweep vs. Fisher,
-   Simple Avg, and TA/TIES best.
-4. ``fig_taskvec_vs_fisher``        : WHC-A (dataless) vs. WHC-A (Fisher)
-   scatter by hparam.
-5. ``fig_param_space_positions``    : L2 distance to pretrained, ensemble
-   mean, and experts-mean for each method (bubble or bar).
-6. ``fig_sweep_curves``             : one subplot per method showing its
+3. ``fig_whc_lambda_sensitivity``   : WHC (tree) sweep vs. RegMean, Fisher,
+   Simple Avg, and TIES.
+4. ``fig_param_space_positions``    : L2 distance to pretrained, ensemble
+   mean, and experts-mean for each method.
+5. ``fig_sweep_curves``             : one subplot per method showing its
    sweep curve.
 """
 from __future__ import annotations
@@ -64,43 +62,28 @@ TIER_OF = {
     "simple":         "dataless",
     "task_arith":     "dataless",
     "ties":           "dataless",
-    "whc_a_dataless": "dataless",
-    "whc_b_dataless": "dataless",
-    "whc_c_dataless": "dataless",
-    "whc_d_dataless": "dataless",
     "fisher_merge":   "statistics",
-    "fisher_ridge":   "statistics",
     "regmean":        "statistics",
     "regmean_plus":   "statistics",
-    "whc_a_fisher":   "statistics",
+    "whc_tree":       "statistics",
 }
 LABEL_OF = {
     "simple":         "Simple Avg.",
     "task_arith":     "Task Arith.",
     "ties":           "TIES",
-    "whc_a_dataless": "WHC-A (dataless)",
-    "whc_b_dataless": "WHC-B (dataless)",
-    "whc_c_dataless": "WHC-C (dataless)",
-    "whc_d_dataless": "WHC-D (dataless)",
     "fisher_merge":   "Fisher",
-    "fisher_ridge":   "Fisher+εI",
     "regmean":        "RegMean",
     "regmean_plus":   "RegMean++",
-    "whc_a_fisher":   "WHC-A (Fisher)",
+    "whc_tree":       "WHC (tree)",
 }
 COLOR_OF = {
     "simple":         "#ADB5BD",
     "task_arith":     AC_SIENNA,
     "ties":           AC_VIOLET,
-    "whc_a_dataless": AC_BLUE,
-    "whc_b_dataless": AC_RED,
-    "whc_c_dataless": AC_ROSE,
-    "whc_d_dataless": AC_TEAL,
     "fisher_merge":   AC_GREEN,
-    "fisher_ridge":   "#6C757D",
     "regmean":        AC_AMBER,
     "regmean_plus":   "#92400E",
-    "whc_a_fisher":   "#1E3A8A",
+    "whc_tree":       AC_BLUE,
 }
 
 
@@ -185,17 +168,18 @@ def fig_methods_per_task_heatmap(results: Dict, tasks: List[str],
 
 
 def fig_whc_lambda_sensitivity(results: Dict, png: Path, svg: Path) -> None:
-    if "whc_a_dataless" not in results["methods"]:
+    if "whc_tree" not in results["methods"]:
         return
-    sweep = results["methods"]["whc_a_dataless"]["sweep"]
+    sweep = results["methods"]["whc_tree"]["sweep"]
     lams = np.array([s["hp"]["lam"] for s in sweep])
     vals = np.array([100 * s["val_avg"] for s in sweep])
 
     fig, ax = plt.subplots(figsize=(6.6, 3.8))
     nz = lams > 0
     ax.plot(lams[nz], vals[nz], "-o", color=AC_BLUE, linewidth=1.8,
-            markersize=5, label="WHC-A (dataless)")
+            markersize=5, label="WHC (tree)")
     for ref, col, name in [
+        ("regmean",      AC_AMBER, "RegMean"),
         ("fisher_merge", AC_GREEN, "Fisher"),
         ("simple",       "#ADB5BD", "Simple Avg"),
         ("ties",         AC_VIOLET, "TIES"),
@@ -207,40 +191,9 @@ def fig_whc_lambda_sensitivity(results: Dict, png: Path, svg: Path) -> None:
     ax.set_xscale("log")
     ax.set_xlabel(r"Tikhonov coefficient  $\lambda$  (log)")
     ax.set_ylabel("Avg. val primary (%)")
-    ax.set_title(r"WHC-A (dataless) sensitivity to $\lambda$")
+    ax.set_title(r"WHC (tree) sensitivity to $\lambda$")
     ax.legend(loc="best")
     _save(fig, png, svg, "fig_whc_lambda_sensitivity")
-
-
-def fig_taskvec_vs_fisher(results: Dict, png: Path, svg: Path) -> None:
-    if "whc_a_dataless" not in results["methods"] or \
-       "whc_a_fisher" not in results["methods"]:
-        return
-    dl_sweep = results["methods"]["whc_a_dataless"]["sweep"]
-    fsh_sweep = results["methods"]["whc_a_fisher"]["sweep"]
-
-    # Align by lam.
-    dl_map = {s["hp"]["lam"]: 100 * s["val_avg"] for s in dl_sweep}
-    fsh_map = {s["hp"]["lam"]: 100 * s["val_avg"] for s in fsh_sweep}
-    lams = sorted(set(dl_map) & set(fsh_map))
-    dl = [dl_map[l] for l in lams]
-    fsh = [fsh_map[l] for l in lams]
-
-    fig, ax = plt.subplots(figsize=(5.2, 5.2))
-    ax.scatter(fsh, dl, color=AC_BLUE, s=40, zorder=3)
-    for l, x, y in zip(lams, fsh, dl):
-        ax.annotate(f"λ={l:.0e}", (x, y), textcoords="offset points",
-                    xytext=(6, 4), fontsize=8, color="#495057")
-    lo = min(min(fsh), min(dl)) - 2
-    hi = max(max(fsh), max(dl)) + 2
-    ax.plot([lo, hi], [lo, hi], color="#ADB5BD", linestyle=":",
-            linewidth=1.0, label="y = x")
-    ax.set_xlim(lo, hi); ax.set_ylim(lo, hi)
-    ax.set_xlabel("WHC-A with Fisher (val primary %)")
-    ax.set_ylabel("WHC-A with task-vec proxy (val primary %)")
-    ax.set_title("Dataless proxy vs. true Fisher")
-    ax.legend(loc="lower right")
-    _save(fig, png, svg, "fig_taskvec_vs_fisher")
 
 
 def fig_param_space_positions(results: Dict, png: Path, svg: Path) -> None:
@@ -310,7 +263,6 @@ def main() -> None:
     fig_methods_bar(results, png, svg)
     fig_methods_per_task_heatmap(results, tasks, png, svg)
     fig_whc_lambda_sensitivity(results, png, svg)
-    fig_taskvec_vs_fisher(results, png, svg)
     fig_param_space_positions(results, png, svg)
     fig_sweep_curves(results, png, svg)
     print(f"[done] figures -> {png} and {svg}")

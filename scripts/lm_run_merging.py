@@ -35,8 +35,7 @@ from src.merging.regmean_plus import regmean_plusplus_merge_simple  # noqa: E402
 from src.merging.simple import simple_average  # noqa: E402
 from src.merging.task_arith import task_arithmetic  # noqa: E402
 from src.merging.ties import ties_merging  # noqa: E402
-from src.merging.whc import (fisher_ridge, select_curvature, whc_a,  # noqa: E402
-                             whc_b, whc_c, whc_d)
+from src.merging.whc import whc_tree  # noqa: E402
 from src.metrics import (aggregate_primary, curvature_stats,  # noqa: E402
                          param_space_summary, task_metric)
 from src.utils import ensure_dir, load_config, set_seed  # noqa: E402
@@ -116,7 +115,6 @@ def build_method_registry(cfg: Dict,
     ``merge_fn(hparams) -> merged_backbone_state_dict``.
     """
     m = cfg["merging"]
-    curv = curvatures_taskvec   # dataless proxy by default
     reg: Dict[str, Tuple[Callable, List[Dict]]] = {}
 
     reg["simple"] = (
@@ -137,10 +135,6 @@ def build_method_registry(cfg: Dict,
         lambda h: fisher_merge(backbones, fishers),
         [{}],
     )
-    reg["fisher_ridge"] = (
-        lambda h: fisher_ridge(backbones, fishers, eps=h["eps"]),
-        expand_grid({"eps": m["fisher_ridge"]["eps_grid"]}),
-    )
     reg["regmean"] = (
         lambda h: regmean_merge(backbones, grams, alpha=h["alpha"]),
         expand_grid({"alpha": m["regmean"]["alpha_grid"]}),
@@ -150,30 +144,9 @@ def build_method_registry(cfg: Dict,
                                                 alpha=h["alpha"]),
         expand_grid({"alpha": m["regmean_plus"]["alpha_grid"]}),
     )
-    reg["whc_a_dataless"] = (
-        lambda h: whc_a(backbones, curv, lam=h["lam"]),
-        expand_grid({"lam": m["whc_a"]["lam_grid"]}),
-    )
-    reg["whc_a_fisher"] = (
-        lambda h: whc_a(backbones, fishers, lam=h["lam"]),
-        expand_grid({"lam": m["whc_a"]["lam_grid"]}),
-    )
-    reg["whc_b_dataless"] = (
-        lambda h: whc_b(backbones, curv, fanout=m["whc_b"]["fanout"],
-                        lam0=h["lam0"], rho=h["rho"]),
-        expand_grid({"lam0": m["whc_b"]["lam0_grid"],
-                     "rho":  m["whc_b"]["rho_grid"]}),
-    )
-    reg["whc_c_dataless"] = (
-        lambda h: whc_c(backbones, curv, fanout=2,
-                        lam0=h["lam0"], rho=h["rho"], grad_fn=None),
-        expand_grid({"lam0": m["whc_c"]["lam0_grid"],
-                     "rho":  m["whc_c"]["rho_grid"]}),
-    )
-    reg["whc_d_dataless"] = (
-        lambda h: whc_d(backbones, curv,
-                        order=None, lam=h["lam"], grad_fn=None),
-        expand_grid({"lam": m["whc_d"]["lam_grid"]}),
+    reg["whc_tree"] = (
+        lambda h: whc_tree(backbones, grams, lam=h["lam"], order=None),
+        expand_grid({"lam": m["whc_tree"]["lam_grid"]}),
     )
     return reg
 

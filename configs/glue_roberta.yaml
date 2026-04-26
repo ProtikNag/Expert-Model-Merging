@@ -21,7 +21,6 @@ grams:
   n_samples: 1024
   batch_size: 32
 merging:
-  curvature_source: taskvec     # default: dataless proxy
   n_hparams_per_method: 8       # matched sweep budget
   task_arith:
     scale_grid: [0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.6, 1.0]
@@ -35,20 +34,10 @@ merging:
   fisher_merge:
     # no hparam; report once
     placeholder: [null]
-  fisher_ridge:
-    eps_grid: [1.0e-8, 1.0e-7, 1.0e-6, 1.0e-5, 1.0e-4, 1.0e-3, 1.0e-2, 1.0e-1]
-  whc_a:
-    lam_grid: [1.0e-8, 1.0e-6, 1.0e-5, 1.0e-4, 1.0e-3, 1.0e-2, 1.0e-1, 1.0]
-  whc_b:
-    lam0_grid: [1.0e-6, 1.0e-5, 1.0e-4, 1.0e-3]
-    rho_grid:  [0.25, 0.5, 1.0]
-    fanout: 2
-  whc_c:
-    lam0_grid: [1.0e-6, 1.0e-5, 1.0e-4, 1.0e-3]
-    rho_grid:  [0.25, 0.5, 1.0]
-  whc_d:
-    lam_grid:  [1.0e-6, 1.0e-5, 1.0e-4, 1.0e-3, 1.0e-2]
-    order: natural              # natural | magnitude | random
+  whc_tree:
+    # WHC as a binary tree of pairwise function-matching merges (Eq. 26).
+    # λ doubles as Tikhonov ridge and ensemble-mean anchor strength.
+    lam_grid: [1.0e-6, 1.0e-5, 1.0e-4, 1.0e-3, 1.0e-2, 1.0e-1, 1.0, 10.0]
 paths:
   checkpoints: ./checkpoints/glue
   results: ./results/glue

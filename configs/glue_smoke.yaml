@@ -21,7 +21,6 @@ grams:
   n_samples: 48
   batch_size: 16
 merging:
-  curvature_source: taskvec
   n_hparams_per_method: 3
   task_arith:
     scale_grid: [0.2, 0.4, 0.8]
@@ -34,20 +33,8 @@ merging:
     alpha_grid: [0.9]           # layer-sweep is expensive; one setting
   fisher_merge:
     placeholder: [null]
-  fisher_ridge:
-    eps_grid: [1.0e-6, 1.0e-4, 1.0e-2]
-  whc_a:
+  whc_tree:
     lam_grid: [1.0e-6, 1.0e-4, 1.0e-2]
-  whc_b:
-    lam0_grid: [1.0e-6, 1.0e-4]
-    rho_grid: [0.5]
-    fanout: 2
-  whc_c:
-    lam0_grid: [1.0e-6, 1.0e-4]
-    rho_grid: [0.5]
-  whc_d:
-    lam_grid: [1.0e-6, 1.0e-4, 1.0e-2]
-    order: natural
 paths:
   checkpoints: ./checkpoints/smoke
   results: ./results/smoke

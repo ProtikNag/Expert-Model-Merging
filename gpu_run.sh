@@ -71,25 +71,46 @@ log_msg " Log:      ${LOG_FILE}"
 log_msg "============================================================"
 
 # -----------------------------------------------------------------------------
-# STEP 1: Fine-tune experts and collect statistics
+# STEP 1: Fine-tune experts and collect statistics (skipped if cached)
 # -----------------------------------------------------------------------------
+
+# Skip Stage 1 if all expected expert artifacts are already on disk. Set
+# FORCE_RETRAIN=1 to override and retrain from scratch.
+SKIP_TRAIN=1
+if [ -n "${FORCE_RETRAIN:-}" ]; then
+    SKIP_TRAIN=0
+fi
+if [ ! -f "checkpoints/glue/pretrained_backbone.pt" ]; then
+    SKIP_TRAIN=0
+fi
+for t in cola sst2 mrpc qqp mnli qnli rte; do
+    for f in backbone.pt head.pt fisher.pt grams.pt; do
+        if [ ! -f "checkpoints/glue/${t}/${f}" ]; then
+            SKIP_TRAIN=0
+        fi
+    done
+done
 
 log_msg ""
 log_msg "------------------------------------------------------------"
 log_msg " Step 1: Fine-tune RoBERTa experts + collect Fisher/Grams"
 log_msg "------------------------------------------------------------"
 
-${PY} scripts/lm_train_experts.py \
-    --config "${CONFIG}" \
-    --device cuda 2>&1 | tee -a "${LOG_FILE}"
-EXIT_CODE=${PIPESTATUS[0]:-$?}
+if [ ${SKIP_TRAIN} -eq 1 ]; then
+    log_msg "Found cached experts under checkpoints/glue/, skipping Stage 1."
+    log_msg "(Set FORCE_RETRAIN=1 to retrain from scratch.)"
+else
+    ${PY} scripts/lm_train_experts.py \
+        --config "${CONFIG}" \
+        --device cuda 2>&1 | tee -a "${LOG_FILE}"
+    EXIT_CODE=${PIPESTATUS[0]:-$?}
 
-if [ ${EXIT_CODE} -ne 0 ]; then
-    log_msg "FAILED: expert training (exit code ${EXIT_CODE})"
-    exit ${EXIT_CODE}
+    if [ ${EXIT_CODE} -ne 0 ]; then
+        log_msg "FAILED: expert training (exit code ${EXIT_CODE})"
+        exit ${EXIT_CODE}
+    fi
+    log_msg "Expert training complete."
 fi
-
-log_msg "Expert training complete."
 
 # -----------------------------------------------------------------------------
 # STEP 2: Run every merging method, tune on val, report on test
