@@ -20,6 +20,7 @@ fisher:
 grams:
   n_samples: 1024
   batch_size: 32
+  recollect_n_samples: 256       # used by whc_tree_iter to refresh Grams
 merging:
   n_hparams_per_method: 8       # matched sweep budget
   task_arith:
@@ -35,9 +36,27 @@ merging:
     # no hparam; report once
     placeholder: [null]
   whc_tree:
-    # WHC as a binary tree of pairwise function-matching merges (Eq. 26).
-    # λ doubles as Tikhonov ridge and ensemble-mean anchor strength.
+    # WHC binary-tree pairwise merge (whc.pdf Eq. 26). λ only.
     lam_grid: [1.0e-6, 1.0e-5, 1.0e-4, 1.0e-3, 1.0e-2, 1.0e-1, 1.0, 10.0]
+  whc_tree_fisher:
+    # γ injects diag(F̄_in) into the Tikhonov ridge (Eq. 19/20 ablation).
+    lam_grid:   [1.0e-5, 1.0e-4, 1.0e-3, 1.0e-2]
+    gamma_grid: [1.0e-3, 1.0e-2, 1.0e-1, 1.0]
+  whc_tree_grad:
+    # β multiplies the -α_i g_i correction term (Eq. 27).
+    lam_grid:  [1.0e-5, 1.0e-4, 1.0e-3, 1.0e-2]
+    beta_grid: [0.1, 0.3, 1.0]
+  whc_tree_full:
+    # Full Eq. (29): λ + γ Fisher ridge + β gradient correction together.
+    lam_grid:   [1.0e-4, 1.0e-3, 1.0e-2]
+    gamma_grid: [1.0e-2, 1.0e-1, 1.0]
+    beta_grid:  [0.0, 0.3, 1.0]
+  whc_tree_iter:
+    # Iterative re-linearization (whc.pdf §7.2 Fix 3), small focused grid.
+    lam_grid:   [1.0e-4, 1.0e-3]
+    gamma_grid: [0.1, 1.0]
+    beta_grid:  [0.0, 0.3]
+    K_grid:     [1, 2]
 paths:
   checkpoints: ./checkpoints/glue
   results: ./results/glue

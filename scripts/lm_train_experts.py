@@ -145,6 +145,8 @@ def main() -> None:
         torch.save(model.head_state_dict(), task_ckpt / "head.pt")
         torch.save(fisher, task_ckpt / "fisher.pt")
         torch.save(grams, task_ckpt / "grams.pt")
+        torch.save({k: v.detach().cpu() for k, v in g_opt.items()},
+                   task_ckpt / "gradient.pt")
         with open(task_ckpt / "train_hist.json", "w") as f:
             json.dump({"history": hist, "t_train_s": dt_train,
                        "val": v_met, "test": t_met}, f, indent=2)

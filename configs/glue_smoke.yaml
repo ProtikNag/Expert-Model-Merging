@@ -20,6 +20,7 @@ fisher:
 grams:
   n_samples: 48
   batch_size: 16
+  recollect_n_samples: 32
 merging:
   n_hparams_per_method: 3
   task_arith:
@@ -35,6 +36,21 @@ merging:
     placeholder: [null]
   whc_tree:
     lam_grid: [1.0e-6, 1.0e-4, 1.0e-2]
+  whc_tree_fisher:
+    lam_grid:   [1.0e-4, 1.0e-2]
+    gamma_grid: [1.0e-2, 1.0]
+  whc_tree_grad:
+    lam_grid:  [1.0e-4, 1.0e-2]
+    beta_grid: [0.3, 1.0]
+  whc_tree_full:
+    lam_grid:   [1.0e-3]
+    gamma_grid: [1.0e-1]
+    beta_grid:  [0.3]
+  whc_tree_iter:
+    lam_grid:   [1.0e-3]
+    gamma_grid: [1.0e-1]
+    beta_grid:  [0.0]
+    K_grid:     [1]
 paths:
   checkpoints: ./checkpoints/smoke
   results: ./results/smoke

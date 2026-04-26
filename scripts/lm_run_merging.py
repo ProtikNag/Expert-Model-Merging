@@ -27,7 +27,8 @@ sys.path.insert(0, str(ROOT))
 
 from src.glue_data import TASK_INFO, build_glue_loaders, load_tokenizer  # noqa: E402
 from src.lm_models import build_encoder_classifier  # noqa: E402
-from src.lm_train import evaluate  # noqa: E402
+from src.lm_train import (backbone_gradient_on_task,  # noqa: E402
+                          collect_backbone_linear_grams, evaluate)
 from src.logging_utils import RunLogger  # noqa: E402
 from src.merging.fisher_merge import fisher_merge  # noqa: E402
 from src.merging.regmean import regmean_merge  # noqa: E402
@@ -60,6 +61,69 @@ def load_all_experts(ckpt_dir: Path, tasks: List[str]):
         grams.append(torch.load(tdir / "grams.pt",
                                 map_location="cpu", weights_only=True))
     return pretrained, backbones, heads, fishers, grams
+
+
+def load_or_compute_gradients(ckpt_dir: Path,
+                              tasks: List[str],
+                              model,
+                              loaders_per_task: Dict[str, any],
+                              backbones: List[Dict[str, torch.Tensor]],
+                              heads: List[Dict[str, torch.Tensor]],
+                              device: torch.device,
+                              n_samples: int,
+                              ) -> List[Dict[str, torch.Tensor]]:
+    """Per-task gradient at the expert weights, cached at
+    ``<ckpt_dir>/<task>/gradient.pt``. Computed lazily if missing.
+    """
+    out: List[Dict[str, torch.Tensor]] = []
+    for i, task in enumerate(tasks):
+        path = ckpt_dir / task / "gradient.pt"
+        if path.exists():
+            out.append(torch.load(path, map_location="cpu",
+                                  weights_only=True))
+            continue
+        print(f"  [grad] computing for task={task}...")
+        model.load_backbone_state_dict(backbones[i], strict=True)
+        out_dim = heads[i]["weight"].shape[0]
+        model.head = torch.nn.Linear(model.head.in_features, out_dim).to(device)
+        model.load_head_state_dict(heads[i], strict=True)
+        model.to(device)
+        g = backbone_gradient_on_task(
+            model, loaders_per_task[task].train, device, n_samples=n_samples,
+        )
+        g_cpu = {k: v.detach().cpu() for k, v in g.items()}
+        torch.save(g_cpu, path)
+        out.append(g_cpu)
+    return out
+
+
+def make_recollect_grams_fn(model,
+                            tasks: List[str],
+                            loaders_per_task: Dict[str, any],
+                            heads: List[Dict[str, torch.Tensor]],
+                            device: torch.device,
+                            n_samples: int):
+    """Return a callable that, given a merged backbone state, re-collects
+    per-task input Grams on that backbone. Used by whc_tree(K>0).
+    """
+    def fn(merged_state: Dict[str, torch.Tensor]
+           ) -> List[Dict[str, torch.Tensor]]:
+        model.load_backbone_state_dict(merged_state, strict=True)
+        model.to(device)
+        new_grams: List[Dict[str, torch.Tensor]] = []
+        for i, task in enumerate(tasks):
+            out_dim = heads[i]["weight"].shape[0]
+            model.head = torch.nn.Linear(
+                model.head.in_features, out_dim).to(device)
+            model.load_head_state_dict(heads[i], strict=True)
+            grams_dev = collect_backbone_linear_grams(
+                model, loaders_per_task[task].train, device,
+                n_samples=n_samples,
+            )
+            new_grams.append({k: v.detach().cpu()
+                              for k, v in grams_dev.items()})
+        return new_grams
+    return fn
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +173,8 @@ def build_method_registry(cfg: Dict,
                           fishers: List[Dict[str, torch.Tensor]],
                           grams: List[Dict[str, torch.Tensor]],
                           curvatures_taskvec: List[Dict[str, torch.Tensor]],
+                          gradients: List[Dict[str, torch.Tensor]],
+                          recollect_grams_fn: Callable,
                           ) -> Dict[str, Tuple[Callable, List[Dict]]]:
     """Return a dict mapping method_name -> (merge_fn, hparam_grid).
 
@@ -144,9 +210,44 @@ def build_method_registry(cfg: Dict,
                                                 alpha=h["alpha"]),
         expand_grid({"alpha": m["regmean_plus"]["alpha_grid"]}),
     )
+    # WHC tree, base: λ only.
     reg["whc_tree"] = (
-        lambda h: whc_tree(backbones, grams, lam=h["lam"], order=None),
+        lambda h: whc_tree(backbones, grams, lam=h["lam"]),
         expand_grid({"lam": m["whc_tree"]["lam_grid"]}),
+    )
+    # WHC tree + Fisher-anchored ridge (γ): whc.pdf Eq. 19/20 ablation.
+    reg["whc_tree_fisher"] = (
+        lambda h: whc_tree(backbones, grams, lam=h["lam"],
+                           fishers=fishers, gamma=h["gamma"]),
+        expand_grid({"lam":   m["whc_tree_fisher"]["lam_grid"],
+                     "gamma": m["whc_tree_fisher"]["gamma_grid"]}),
+    )
+    # WHC tree + gradient correction (β): Eq. (27) -β α_i g_i term.
+    reg["whc_tree_grad"] = (
+        lambda h: whc_tree(backbones, grams, lam=h["lam"],
+                           gradients=gradients, beta=h["beta"]),
+        expand_grid({"lam":  m["whc_tree_grad"]["lam_grid"],
+                     "beta": m["whc_tree_grad"]["beta_grid"]}),
+    )
+    # WHC tree, full Eq. (29): λ + γ + β jointly.
+    reg["whc_tree_full"] = (
+        lambda h: whc_tree(backbones, grams, lam=h["lam"],
+                           fishers=fishers, gamma=h["gamma"],
+                           gradients=gradients, beta=h["beta"]),
+        expand_grid({"lam":   m["whc_tree_full"]["lam_grid"],
+                     "gamma": m["whc_tree_full"]["gamma_grid"],
+                     "beta":  m["whc_tree_full"]["beta_grid"]}),
+    )
+    # WHC tree, iterative re-linearization: refresh Grams K times.
+    reg["whc_tree_iter"] = (
+        lambda h: whc_tree(backbones, grams, lam=h["lam"],
+                           fishers=fishers, gamma=h["gamma"],
+                           gradients=gradients, beta=h["beta"],
+                           K=h["K"], recollect_grams_fn=recollect_grams_fn),
+        expand_grid({"lam":   m["whc_tree_iter"]["lam_grid"],
+                     "gamma": m["whc_tree_iter"]["gamma_grid"],
+                     "beta":  m["whc_tree_iter"]["beta_grid"],
+                     "K":     m["whc_tree_iter"]["K_grid"]}),
     )
     return reg
 
@@ -237,9 +338,25 @@ def main() -> None:
     print(f"  avg primary = {init_avg:.4f}")
     logger.record(event="shared_init", per_task=init_metrics, avg=init_avg)
 
+    # Per-task gradients at expert weights, cached on disk (whc.pdf Eq. 27 -β g term).
+    print("\n[grad] loading or computing per-task gradients at expert weights")
+    n_grad_samples = cfg.get("fisher", {}).get("n_samples", 1024)
+    gradients = load_or_compute_gradients(
+        ckpt_dir, tasks, model, loaders_per_task, backbones, heads,
+        device, n_samples=min(n_grad_samples, 1024),
+    )
+
+    # Recollect-Grams callback used by whc_tree_iter (whc.pdf §7.2 Fix 3).
+    recollect_n = cfg.get("grams", {}).get("recollect_n_samples", 256)
+    recollect_grams_fn = make_recollect_grams_fn(
+        model, tasks, loaders_per_task, heads, device,
+        n_samples=recollect_n,
+    )
+
     # Build the method registry and run.
     registry = build_method_registry(cfg, backbones, pretrained, fishers,
-                                     grams, cv_task)
+                                     grams, cv_task, gradients,
+                                     recollect_grams_fn)
     only = set(args.only.split(",")) if args.only else None
 
     results: Dict[str, Dict] = {
