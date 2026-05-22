@@ -19,12 +19,29 @@ tier_domains: [math, coding]         # fail-fast start (N=2)
 # Where downloaded checkpoints live locally (one subdir per repo).
 download_dir: ./mb_ckpts
 
-# Tier 1 methods and their hyperparameters. whc_diag is the diagonal dataless
-# WHC (the cheapest variant); task_arith scale 0.4 is MergeBench's reference.
-methods:
-  simple: {}
+# Local clone of the MergeBench repo (https://github.com/uiuctml/MergeBench).
+# Its baseline merger classes are driven directly for a confound-free compare.
+mergebench_dir: ./MergeBench
+
+# Our methods (run via the tested standalone path in mergebench/llm_merge.py).
+# whc_diag is the diagonal dataless WHC; task_arith here is a harness
+# cross-check against MergeBench's TaskArithmetic.
+our_methods:
   task_arith: {scale: 0.4}
   whc_diag: {lam: 1.0e-4, curvature: taskvec}
+
+# MergeBench baseline classes, run via mergebench/mb_baselines.py.
+# Dataless tier needs weights only; data tier needs MergeBench's data env + GPU.
+baselines_dataless:
+  TaskArithmetic: {scaling_coef: 0.4}
+  TIES: {scaling_coef: 0.4, K: 0.3, merge_func: sum}
+  DARE: {scaling_coef: 0.4, p: 0.9}
+  Consensus: {scaling_coef: 0.4, k: 2, lamda: 0.5}
+  LocalizeAndStitch: {sparsity: 0.1, dataless: true, sigmoid_bias: 3}
+
+baselines_data:           # phase 2: needs MergeBench data env + GPU
+  RegMean: {reduction: 0.5}
+  RegMeanPlusPlus: {reduction: 0.1}
 
 paths:
   merged: ./mb_merged           # merged checkpoints (one subdir per method)
