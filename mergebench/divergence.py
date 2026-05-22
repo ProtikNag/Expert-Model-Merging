@@ -19,16 +19,66 @@ models. Statistics accumulate in float32.
 """
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Callable, Dict, List
 
 import torch
 
 from .io_utils import ShardedStateReader
 
 
+def component_of(key: str) -> str:
+    """Bucket a parameter key into a coarse architectural component.
+
+    Used for the per-component drift breakdown so attention, MLP, embedding,
+    and norm parameters can be compared separately (the global figure is
+    dominated by the large embedding matrix).
+    """
+    k = key.lower()
+    if "embed" in k or "lm_head" in k:
+        return "embed"
+    if "self_attn" in k or "attn" in k or "attention" in k:
+        return "attn"
+    if "mlp" in k or "feed_forward" in k or "ffn" in k:
+        return "mlp"
+    if "norm" in k or "ln" in k:
+        return "norm"
+    return "other"
+
+
+def _empty_accum(n: int) -> Dict:
+    return {
+        "sq_norm_tau": [0.0] * n,
+        "dot_tau": [[0.0] * n for _ in range(n)],
+        "sq_norm_pre": 0.0,
+    }
+
+
+def _finalize(acc: Dict, n: int, expert_names: List[str]) -> Dict:
+    """Turn squared-norm / dot accumulators into norms, cosines, drift."""
+    norm_tau = [s ** 0.5 for s in acc["sq_norm_tau"]]
+    norm_pre = acc["sq_norm_pre"] ** 0.5
+    cosine = [[0.0] * n for _ in range(n)]
+    for i in range(n):
+        for j in range(n):
+            denom = norm_tau[i] * norm_tau[j]
+            cosine[i][j] = (acc["dot_tau"][i][j] / denom) if denom > 0 else 0.0
+    off_diag = [cosine[i][j] for i in range(n) for j in range(n) if i != j]
+    mean_off_diag = sum(off_diag) / len(off_diag) if off_diag else 0.0
+    return {
+        "norm_pretrained": norm_pre,
+        "norm_taskvec": {expert_names[i]: norm_tau[i] for i in range(n)},
+        "relative_drift": {expert_names[i]: (norm_tau[i] / norm_pre
+                                             if norm_pre > 0 else 0.0)
+                           for i in range(n)},
+        "cosine_matrix": cosine,
+        "mean_offdiag_cosine": mean_off_diag,
+    }
+
+
 def compute_divergence(base_dir: str,
                        expert_dirs: List[str],
                        expert_names: List[str],
+                       group_fn: Callable[[str], str] = component_of,
                        log_every: int = 50) -> Dict:
     """Compute task-vector norms and pairwise cosine similarities.
 
@@ -54,15 +104,19 @@ def compute_divergence(base_dir: str,
     experts = [ShardedStateReader(d) for d in expert_dirs]
     n = len(experts)
 
-    # Accumulators over the flattened, concatenated parameter space.
-    sq_norm_tau = [0.0] * n            # sum of tau_i^2
-    dot_tau = [[0.0] * n for _ in range(n)]   # sum of tau_i . tau_j
-    sq_norm_pre = 0.0                  # sum of w_pre^2
+    # One accumulator over all parameters, plus one per architectural group.
+    glob = _empty_accum(n)
+    groups: Dict[str, Dict] = {}
 
     keys = [k for k in base.keys() if base.get(k).dtype.is_floating_point]
     for idx, key in enumerate(keys):
         w_pre = base.get(key).float()
-        sq_norm_pre += float((w_pre * w_pre).sum())
+        sq_pre = float((w_pre * w_pre).sum())
+        glob["sq_norm_pre"] += sq_pre
+        grp = group_fn(key)
+        if grp not in groups:
+            groups[grp] = _empty_accum(n)
+        groups[grp]["sq_norm_pre"] += sq_pre
 
         # Skip keys not present with matching shape in every expert.
         taus = []
@@ -76,39 +130,25 @@ def compute_divergence(base_dir: str,
             continue
 
         for i in range(n):
-            sq_norm_tau[i] += float(taus[i].dot(taus[i]))
+            sq_ii = float(taus[i].dot(taus[i]))
+            glob["sq_norm_tau"][i] += sq_ii
+            groups[grp]["sq_norm_tau"][i] += sq_ii
             for j in range(i, n):
                 d = float(taus[i].dot(taus[j]))
-                dot_tau[i][j] += d
+                glob["dot_tau"][i][j] += d
+                groups[grp]["dot_tau"][i][j] += d
                 if i != j:
-                    dot_tau[j][i] += d
+                    glob["dot_tau"][j][i] += d
+                    groups[grp]["dot_tau"][j][i] += d
 
         if (idx + 1) % log_every == 0 or (idx + 1) == len(keys):
             print(f"  [divergence] {idx + 1}/{len(keys)} keys", flush=True)
 
-    norm_tau = [s ** 0.5 for s in sq_norm_tau]
-    norm_pre = sq_norm_pre ** 0.5
-
-    cosine = [[0.0] * n for _ in range(n)]
-    for i in range(n):
-        for j in range(n):
-            denom = norm_tau[i] * norm_tau[j]
-            cosine[i][j] = (dot_tau[i][j] / denom) if denom > 0 else 0.0
-
-    # Mean off-diagonal cosine is the single-number summary of alignment.
-    off_diag = [cosine[i][j] for i in range(n) for j in range(n) if i != j]
-    mean_off_diag = sum(off_diag) / len(off_diag) if off_diag else 0.0
-
-    return {
-        "expert_names": expert_names,
-        "norm_pretrained": norm_pre,
-        "norm_taskvec": {expert_names[i]: norm_tau[i] for i in range(n)},
-        "relative_drift": {expert_names[i]: (norm_tau[i] / norm_pre
-                                             if norm_pre > 0 else 0.0)
-                           for i in range(n)},
-        "cosine_matrix": cosine,
-        "mean_offdiag_cosine": mean_off_diag,
-    }
+    out = {"expert_names": expert_names}
+    out.update(_finalize(glob, n, expert_names))
+    out["per_component"] = {g: _finalize(acc, n, expert_names)
+                            for g, acc in sorted(groups.items())}
+    return out
 
 
 def format_report(div: Dict) -> str:
@@ -131,5 +171,18 @@ def format_report(div: Dict) -> str:
         lines.append(f"{name:<16}{row}")
     lines.append("")
     lines.append(f"mean off-diagonal cosine = {div['mean_offdiag_cosine']:.4f}")
+
+    if "per_component" in div:
+        lines.append("")
+        lines.append("-" * 60)
+        lines.append("per-component mean off-diagonal cosine and rel. drift:")
+        lines.append(f"{'component':<12}{'mean_cos':>12}"
+                     + "".join(f"{nm[:8]:>10}" for nm in names))
+        for comp, sub in div["per_component"].items():
+            drifts = "".join(f"{sub['relative_drift'][nm]:>10.4f}"
+                             for nm in names)
+            lines.append(f"{comp:<12}{sub['mean_offdiag_cosine']:>12.4f}{drifts}")
+        lines.append("(columns after mean_cos are per-expert relative drift "
+                     "within that component)")
     lines.append("=" * 60)
     return "\n".join(lines)
