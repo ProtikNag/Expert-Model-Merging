@@ -7,7 +7,10 @@
 #   pip install --no-cache-dir -r requirements-mergebench.txt
 #
 # torchvision is NOT needed here (it is only used by the GLUE/pilot code).
-numpy>=1.24
+# Cap below 2.0: numpy>=2.x wheels need glibc>=2.28, but the HPC nodes are
+# RHEL7 (glibc 2.17). Without the cap pip builds numpy from source and fails
+# on the system gcc 4.8.5 (numpy needs gcc>=9.3). 1.26.x ships manylinux2014.
+numpy>=1.24,<2
 pyyaml>=6.0
 tqdm>=4.65
 matplotlib>=3.7
