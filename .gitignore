@@ -55,6 +55,10 @@ job*.err
 checkpoints/
 results/logs/
 
+# ── Secrets (never commit) ─────────────────────────────────────────────
+hf_token.txt
+*.token
+
 # ── MergeBench Tier 0 / Tier 1 outputs (regenerated on HPC) ────────────
 mb_ckpts/                                 # downloaded base + expert checkpoints
 mb_merged/                                # merged HF checkpoints

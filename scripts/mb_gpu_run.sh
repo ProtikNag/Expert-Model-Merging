@@ -63,6 +63,13 @@ log " WHC vs MergeBench baselines | base=${BASE_NAME} domains=${DOMAINS}"
 log " stage=${STAGE}  config=${CONFIG}  mergebench=${MERGEBENCH_DIR}"
 log "============================================================"
 
+# HF auth: prefer an exported HF_TOKEN, else a gitignored hf_token.txt created
+# directly on this node (never committed). Falls back to cached login.
+if [ -z "${HF_TOKEN:-}" ] && [ -f hf_token.txt ]; then
+    export HF_TOKEN="$(tr -d '[:space:]' < hf_token.txt)"
+    log "HF_TOKEN loaded from hf_token.txt"
+fi
+
 conda activate "${MERGE_ENV}" 2>/dev/null || true
 PY="$(command -v python)"
 log "python: ${PY}"
