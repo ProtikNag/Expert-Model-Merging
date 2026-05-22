@@ -1,0 +1,16 @@
+# Slim deps for the MergeBench merging env (Tier 0 + Tier 1 merges).
+#
+# Merges and the dataless baselines are CPU-only, so install CPU torch first
+# (avoids ~5GB of nvidia-* CUDA wheels that overflow small /home quotas):
+#
+#   pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+#   pip install --no-cache-dir -r requirements-mergebench.txt
+#
+# torchvision is NOT needed here (it is only used by the GLUE/pilot code).
+numpy>=1.24
+pyyaml>=6.0
+tqdm>=4.65
+matplotlib>=3.7
+transformers>=4.42  # gemma2 model_type added in 4.42.0; <4.42 raises KeyError: 'gemma2'
+safetensors>=0.4
+huggingface_hub>=0.23
