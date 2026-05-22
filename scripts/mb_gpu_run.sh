@@ -47,6 +47,7 @@ fi
 CONFIG="${CONFIG:-configs/mergebench.yaml}"
 STAGE="${STAGE:-all}"
 DOMAINS="${DOMAINS:-math,coding}"
+ONLY="${ONLY:-}"          # comma-separated method subset for fail-fast merges
 MERGEBENCH_DIR="${MERGEBENCH_DIR:-./MergeBench}"
 MERGE_ENV="${MERGE_ENV:-merging}"
 BASE_NAME="${BASE_NAME:-gemma-2-2b}"
@@ -103,7 +104,9 @@ fi
 # -----------------------------------------------------------------------------
 if [ "${STAGE}" = "all" ] || [ "${STAGE}" = "merge" ]; then
     log "--- Tier 1: merging (ours + dataless baselines) ---"
-    ${PY} -u scripts/mb_tier1_merge.py --config "${CONFIG}" --domains "${DOMAINS}" --tier all 2>&1 | tee -a "${LOG}"
+    ONLY_ARG=""
+    [ -n "${ONLY}" ] && ONLY_ARG="--only ${ONLY}"
+    ${PY} -u scripts/mb_tier1_merge.py --config "${CONFIG}" --domains "${DOMAINS}" --tier all ${ONLY_ARG} 2>&1 | tee -a "${LOG}"
 fi
 
 # -----------------------------------------------------------------------------
