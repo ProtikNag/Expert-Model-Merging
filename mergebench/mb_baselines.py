@@ -39,6 +39,41 @@ def _ensure_on_path(mergebench_dir: str) -> None:
         sys.path.insert(0, merging)
 
 
+def _stub_trl_if_absent() -> None:
+    """Register a placeholder ``trl`` module when the real one is missing.
+
+    MergeBench's ``merging_methods/__init__.py`` eagerly imports every merger,
+    including ``LocalizeAndStitch``, whose import chain ends at
+    ``from trl import SFTConfig, SFTTrainer`` (via ``taskloader``). That makes
+    even data-free baselines (TaskArithmetic, TIES, DARE, Consensus) fail to
+    import when ``trl`` is not installed. ``trl`` cannot be installed alongside
+    the pinned ``transformers`` here without a major-version upgrade, so for the
+    data-free path we satisfy the symbol lookup with stubs that are never
+    actually called. Data-using methods still require a real ``trl`` install.
+    """
+    import importlib.util
+
+    if importlib.util.find_spec("trl") is not None:
+        return  # real trl available; do not shadow it
+
+    import types
+
+    stub = types.ModuleType("trl")
+
+    class _Unavailable:  # noqa: WPS431 (local placeholder)
+        """Raises only if a data-using method actually instantiates it."""
+
+        def __init__(self, *args, **kwargs):
+            raise ModuleNotFoundError(
+                "trl is not installed; this MergeBench method needs the "
+                "data/SFT pipeline. Install trl in a transformers>=4.40 env."
+            )
+
+    stub.SFTConfig = _Unavailable
+    stub.SFTTrainer = _Unavailable
+    sys.modules["trl"] = stub
+
+
 def run_baseline(algo: str,
                  base_dir: str,
                  expert_dirs: List[str],
@@ -69,6 +104,10 @@ def run_baseline(algo: str,
         data-using methods we inject ``task_names`` automatically.
     """
     _ensure_on_path(mergebench_dir)
+    if algo not in DATA_USING:
+        # Data-free baselines never touch trl; stub it so the package's eager
+        # __init__ import does not drag in the SFT pipeline.
+        _stub_trl_if_absent()
     import merging_methods  # noqa: WPS433 (resolved via sys.path)
 
     merge_kwargs = dict(hp)
