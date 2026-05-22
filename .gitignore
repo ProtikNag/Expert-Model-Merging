@@ -54,3 +54,9 @@ job*.err
 # Heavy run artifacts not tracked in git
 checkpoints/
 results/logs/
+
+# ── MergeBench Tier 0 / Tier 1 outputs (regenerated on HPC) ────────────
+mb_ckpts/                                 # downloaded base + expert checkpoints
+mb_merged/                                # merged HF checkpoints
+results/mergebench/                       # divergence + merge summaries
+results/mb_eval/                          # MergeBench eval outputs

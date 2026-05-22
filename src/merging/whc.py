@@ -3,13 +3,16 @@
 Implements the function-matching closed-form merge from docs/whc.pdf §6
 Eq. (27) / §8 Eq. (29),
 
-    w_M = (sum_i α_i M_i + λI)^{-1}
-          (sum_i α_i M_i w_i  -  β sum_i α_i g_i  +  λ w̄),
+    w_M = (sum_i α_i G_i + λI)^{-1}
+          (sum_i α_i G_i w_i  -  β sum_i α_i g_i  +  λ w̄),
 
-with M_i = β H_i + (1 - β) G_i and G_i the per-linear-layer activation
-Gram (Eq. 23, the Kronecker shortcut). The implementation specializes
-the formula to N = 2 at every internal node of a balanced binary tree
-built over the expert models.
+with G_i the per-linear-layer activation Gram (Eq. 23, the Kronecker
+shortcut). The implementation specializes the formula to N = 2 at every
+internal node of a balanced binary tree built over the expert models.
+
+Note: the curvature used in the matching term is the Gram G_i. The β knob
+controls only the -β α_i g_i gradient-correction term (not a β H + (1-β) G
+mix); γ optionally adds a Fisher ridge to the λI term (see below).
 
 Three knobs implement the three "fixes" from §7.2:
 

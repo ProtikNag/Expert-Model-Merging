@@ -1,0 +1,32 @@
+# MergeBench Tier 0 / Tier 1 fail-fast validation.
+#
+# Start small: Gemma-2-2B is the smallest MergeBench base. Begin Tier 0/1 on
+# two of the most disjoint domains (math, coding), then widen only if the
+# go/no-go gates pass. Expert repos follow MergeBench's naming convention:
+#   MergeBench/<base_name>_<domain>   e.g. MergeBench/gemma-2-2b_math
+# Confirm exact repo names at https://huggingface.co/MergeBench and accept the
+# base model license on HuggingFace before downloading.
+
+seed: 42
+
+base_model: google/gemma-2-2b        # smallest MergeBench base
+base_name: gemma-2-2b                # = base_model.split('/')[-1]
+
+# All five MergeBench domains. tier_domains selects the subset to run now.
+domains: [instruction, math, coding, safety, multilingual]
+tier_domains: [math, coding]         # fail-fast start (N=2)
+
+# Where downloaded checkpoints live locally (one subdir per repo).
+download_dir: ./mb_ckpts
+
+# Tier 1 methods and their hyperparameters. whc_diag is the diagonal dataless
+# WHC (the cheapest variant); task_arith scale 0.4 is MergeBench's reference.
+methods:
+  simple: {}
+  task_arith: {scale: 0.4}
+  whc_diag: {lam: 1.0e-4, curvature: taskvec}
+
+paths:
+  merged: ./mb_merged           # merged checkpoints (one subdir per method)
+  results: ./results/mergebench # divergence json, merge summaries
+  logs: ./results/logs          # RunLogger tees + manifests + metrics jsonl
