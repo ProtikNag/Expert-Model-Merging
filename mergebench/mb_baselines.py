@@ -39,39 +39,53 @@ def _ensure_on_path(mergebench_dir: str) -> None:
         sys.path.insert(0, merging)
 
 
-def _stub_trl_if_absent() -> None:
-    """Register a placeholder ``trl`` module when the real one is missing.
+# Optional deps that MergeBench's eager ``merging_methods/__init__.py`` drags in
+# (via LocalizeAndStitch -> localize_utils -> taskloader) but that data-free
+# baselines never call at runtime. None can be installed alongside the pinned
+# transformers 4.32.1 without a transformers-5 upgrade that breaks ml_env.
+_DATA_PIPELINE_DEPS = ("trl", "accelerate")
+
+
+def _stub_data_pipeline_deps() -> None:
+    """Register placeholder modules for absent data/SFT-pipeline deps.
 
     MergeBench's ``merging_methods/__init__.py`` eagerly imports every merger,
-    including ``LocalizeAndStitch``, whose import chain ends at
-    ``from trl import SFTConfig, SFTTrainer`` (via ``taskloader``). That makes
-    even data-free baselines (TaskArithmetic, TIES, DARE, Consensus) fail to
-    import when ``trl`` is not installed. ``trl`` cannot be installed alongside
-    the pinned ``transformers`` here without a major-version upgrade, so for the
-    data-free path we satisfy the symbol lookup with stubs that are never
-    actually called. Data-using methods still require a real ``trl`` install.
+    including ``LocalizeAndStitch``, whose chain pulls ``trl`` (SFTConfig,
+    SFTTrainer) and ``accelerate`` (dispatch_model). That makes even data-free
+    baselines (TaskArithmetic, TIES, DARE, Consensus) fail to import when those
+    deps are missing. They cannot be installed alongside the pinned transformers
+    here without a major-version upgrade, so for the data-free path we satisfy
+    the symbol lookups with placeholders that are never actually invoked. Each
+    stub module's ``__getattr__`` (PEP 562) returns a class usable as a base or
+    callable; it raises only if a data-using method genuinely touches it. Data-
+    using methods still require real installs in a transformers>=4.40 env.
     """
     import importlib.util
-
-    if importlib.util.find_spec("trl") is not None:
-        return  # real trl available; do not shadow it
-
     import types
 
-    stub = types.ModuleType("trl")
+    for name in _DATA_PIPELINE_DEPS:
+        if name in sys.modules or importlib.util.find_spec(name) is not None:
+            continue  # real module available; do not shadow it
 
-    class _Unavailable:  # noqa: WPS431 (local placeholder)
-        """Raises only if a data-using method actually instantiates it."""
+        stub = types.ModuleType(name)
 
-        def __init__(self, *args, **kwargs):
-            raise ModuleNotFoundError(
-                "trl is not installed; this MergeBench method needs the "
-                "data/SFT pipeline. Install trl in a transformers>=4.40 env."
-            )
+        def _make_placeholder(mod_name: str):
+            class _Unavailable:  # noqa: WPS431 (local placeholder)
+                """Raises only if a data-using method actually uses it."""
 
-    stub.SFTConfig = _Unavailable
-    stub.SFTTrainer = _Unavailable
-    sys.modules["trl"] = stub
+                def __init__(self, *args, **kwargs):
+                    raise ModuleNotFoundError(
+                        f"{mod_name} is not installed; this MergeBench method "
+                        f"needs the data/SFT pipeline. Install it in a "
+                        f"transformers>=4.40 env."
+                    )
+
+            return _Unavailable
+
+        placeholder = _make_placeholder(name)
+        # Resolve any symbol (from X import anything) to the placeholder.
+        stub.__getattr__ = lambda _attr, _p=placeholder: _p  # type: ignore[attr-defined]
+        sys.modules[name] = stub
 
 
 def run_baseline(algo: str,
@@ -105,9 +119,9 @@ def run_baseline(algo: str,
     """
     _ensure_on_path(mergebench_dir)
     if algo not in DATA_USING:
-        # Data-free baselines never touch trl; stub it so the package's eager
-        # __init__ import does not drag in the SFT pipeline.
-        _stub_trl_if_absent()
+        # Data-free baselines never touch the SFT pipeline; stub its optional
+        # deps so the package's eager __init__ import does not require them.
+        _stub_data_pipeline_deps()
     import merging_methods  # noqa: WPS433 (resolved via sys.path)
 
     merge_kwargs = dict(hp)
