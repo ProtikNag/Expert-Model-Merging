@@ -26,6 +26,7 @@ import argparse
 import json
 import sys
 import time
+import traceback
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -91,24 +92,35 @@ def main() -> None:
         save_dir = str(merged_root / name)
         print(f"\n[method={name}] kind={kind} hp={hp} -> {save_dir}", flush=True)
         t0 = time.time()
-        if kind == "ours":
-            summary = merge_checkpoints(
-                method=name, base_dir=base_dir, expert_dirs=expert_dirs,
-                save_dir=save_dir,
-                scale=hp.get("scale", 0.4),
-                lam=hp.get("lam", 1e-4),
-                curvature=hp.get("curvature", "taskvec"))
-        else:
-            run_baseline(algo=name, base_dir=base_dir, expert_dirs=expert_dirs,
-                         domains=domains, save_dir=save_dir,
-                         mergebench_dir=cfg["mergebench_dir"], hp=hp)
-            summary = {}
+        # Isolate each method: a failure (e.g. a baseline OOMing, or breaking
+        # under a newer transformers) is recorded and skipped so the remaining
+        # methods still produce their checkpoints. The summary keeps the error.
+        try:
+            if kind == "ours":
+                summary = merge_checkpoints(
+                    method=name, base_dir=base_dir, expert_dirs=expert_dirs,
+                    save_dir=save_dir,
+                    scale=hp.get("scale", 0.4),
+                    lam=hp.get("lam", 1e-4),
+                    curvature=hp.get("curvature", "taskvec"))
+            else:
+                run_baseline(algo=name, base_dir=base_dir,
+                             expert_dirs=expert_dirs, domains=domains,
+                             save_dir=save_dir,
+                             mergebench_dir=cfg["mergebench_dir"], hp=hp)
+                summary = {}
+        except Exception as exc:  # noqa: BLE001 (want to continue the sweep)
+            traceback.print_exc()
+            summary = {"error": repr(exc)}
+            print(f"  [{name}] FAILED: {exc}", flush=True)
         summary["merge_time_s"] = time.time() - t0
         summary["save_dir"] = save_dir
         summaries[name] = summary
         logger.record(event="tier1_merge", method=name, kind=kind,
                       domains=domains, hp=hp, **summary)
-        print(f"  [{name}] done in {summary['merge_time_s']:.1f}s", flush=True)
+        status = "FAILED" if "error" in summary else "done"
+        print(f"  [{name}] {status} in {summary['merge_time_s']:.1f}s",
+              flush=True)
 
     out_path = Path(results_dir) / f"tier1_merges_{cfg['base_name']}.json"
     with open(out_path, "w") as f:
