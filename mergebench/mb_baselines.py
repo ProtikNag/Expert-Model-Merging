@@ -83,8 +83,20 @@ def _stub_data_pipeline_deps() -> None:
             return _Unavailable
 
         placeholder = _make_placeholder(name)
-        # Resolve any symbol (from X import anything) to the placeholder.
-        stub.__getattr__ = lambda _attr, _p=placeholder: _p  # type: ignore[attr-defined]
+
+        def _stub_getattr(attr, _p=placeholder):
+            # Dunder lookups (__file__, __path__, __spec__, ...) must NOT resolve
+            # to the placeholder: import/inspect machinery probes them on every
+            # module in sys.modules (e.g. torch's lazy custom_op registration
+            # calls inspect.getmodule, which reads __file__ and calls
+            # .endswith on it). Returning a class there breaks that walk. Raise
+            # AttributeError so callers fall back to their defaults; resolve only
+            # genuine symbol lookups (from X import SFTConfig) to the placeholder.
+            if attr.startswith("__") and attr.endswith("__"):
+                raise AttributeError(attr)
+            return _p
+
+        stub.__getattr__ = _stub_getattr  # type: ignore[attr-defined]
         sys.modules[name] = stub
 
 
