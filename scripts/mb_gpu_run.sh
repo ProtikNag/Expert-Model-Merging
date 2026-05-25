@@ -82,6 +82,12 @@ if [ ! -d "${MERGEBENCH_DIR}" ]; then
     git clone --depth 1 https://github.com/uiuctml/MergeBench "${MERGEBENCH_DIR}" 2>&1 | tee -a "${LOG}"
 fi
 
+# Apply our hardware-specific patches to the clone (idempotent): memory-bounded
+# TIES trim + eager attention for LocalizeAndStitch. Without these, TIES OOMs
+# above 128G and L&S fails on the missing (unbuildable) flash-attn.
+log "--- patching MergeBench clone for this node ---"
+${PY} -u scripts/mb_patch_mergebench.py --mergebench "${MERGEBENCH_DIR}" 2>&1 | tee -a "${LOG}"
+
 # -----------------------------------------------------------------------------
 # Download base + experts (idempotent; snapshot_download skips existing files).
 # -----------------------------------------------------------------------------
