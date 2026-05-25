@@ -13,7 +13,13 @@
 numpy>=1.24,<2
 pyyaml>=6.0
 tqdm>=4.65
-matplotlib>=3.7
 transformers>=4.42  # gemma2 model_type added in 4.42.0; <4.42 raises KeyError: 'gemma2'
 safetensors>=0.4
 huggingface_hub>=0.23
+
+# matplotlib is intentionally NOT here. The merge + baseline path never imports
+# it; only scripts/mb_make_figures.py does, and that is run locally (Mac), not
+# on the HPC node. Installing it on RHEL7 pulls contourpy, which has no cp311
+# manylinux wheel and source-builds against gcc 4.8.5 (cc1plus -Werror) and
+# fails. If you must plot on HPC: pip install "contourpy==1.1.1" matplotlib
+# (1.1.1 ships a manylinux2014 wheel), in a throwaway env.
