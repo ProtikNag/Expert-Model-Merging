@@ -10,6 +10,9 @@
 # Cap below 2.0: numpy>=2.x wheels need glibc>=2.28, but the HPC nodes are
 # RHEL7 (glibc 2.17). Without the cap pip builds numpy from source and fails
 # on the system gcc 4.8.5 (numpy needs gcc>=9.3). 1.26.x ships manylinux2014.
+# --- Core: enough to run OUR methods (whc_diag, task_arith) ------------------
+# llm_merge.py reads safetensors directly and never imports transformers/sklearn
+# /matplotlib, so this minimal set is all WHC itself needs.
 numpy>=1.24,<2
 pyyaml>=6.0
 tqdm>=4.65
@@ -17,9 +20,23 @@ transformers>=4.42  # gemma2 model_type added in 4.42.0; <4.42 raises KeyError: 
 safetensors>=0.4
 huggingface_hub>=0.23
 
-# matplotlib is intentionally NOT here. The merge + baseline path never imports
-# it; only scripts/mb_make_figures.py does, and that is run locally (Mac), not
-# on the HPC node. Installing it on RHEL7 pulls contourpy, which has no cp311
-# manylinux wheel and source-builds against gcc 4.8.5 (cc1plus -Werror) and
-# fails. If you must plot on HPC: pip install "contourpy==1.1.1" matplotlib
-# (1.1.1 ships a manylinux2014 wheel), in a throwaway env.
+# --- Baselines: extra deps to import MergeBench's mergers --------------------
+# MergeBench's merging_methods/__init__.py EAGERLY imports every merger, so even
+# the data-free baselines pull a long transitive chain: transformers 5 hard-
+# imports sklearn.metrics.roc_curve; TIES's utils import matplotlib; Localize&
+# Stitch chains taskloader -> datasets. All of the below are required just to
+# `import merging_methods` (not to run a data-free merge). Each pin below is the
+# newest version that still ships a cp311 manylinux2014 wheel — on RHEL7
+# (glibc 2.17, gcc 4.8.5) any source-build fails (numpy>=2 / pandas>=3 need
+# gcc>=9.3; contourpy newest has no cp311 wheel).
+accelerate            # transformers 5 version-probes this; stub alone won't satisfy it
+scipy<1.14
+scikit-learn          # pulls joblib, threadpoolctl
+contourpy==1.1.1      # matplotlib dep; newest source-builds and fails
+matplotlib            # imported by TIES utils
+aiohttp               # datasets dep (taskloader chain)
+pandas<2.3            # 2.2.x has a cp311 wheel; >=3 source-builds and fails
+dill
+multiprocess
+xxhash
+requests
