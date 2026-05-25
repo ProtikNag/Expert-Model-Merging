@@ -60,6 +60,7 @@ def _stub_data_pipeline_deps() -> None:
     callable; it raises only if a data-using method genuinely touches it. Data-
     using methods still require real installs in a transformers>=4.40 env.
     """
+    import importlib.machinery
     import importlib.util
     import types
 
@@ -68,6 +69,13 @@ def _stub_data_pipeline_deps() -> None:
             continue  # real module available; do not shadow it
 
         stub = types.ModuleType(name)
+        # A bare ModuleType has __spec__ = None. transformers 5's availability
+        # check calls importlib.util.find_spec(name), which raises
+        # "ValueError: <name>.__spec__ is None" when the module is present but
+        # spec-less. Give it a real (loader-less) spec so find_spec returns it;
+        # transformers then queries importlib.metadata.version(name), gets
+        # PackageNotFoundError, and correctly treats the dep as unavailable.
+        stub.__spec__ = importlib.machinery.ModuleSpec(name, loader=None)
 
         def _make_placeholder(mod_name: str):
             class _Unavailable:  # noqa: WPS431 (local placeholder)
