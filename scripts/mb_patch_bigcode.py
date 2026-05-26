@@ -17,18 +17,18 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-_ORIG = '''    model_kwargs = {
-        "revision": args.revision,
-        "trust_remote_code": args.trust_remote_code,
-        "token": args.use_auth_token,
-    }'''
+_ORIG = '''        model_kwargs = {
+            "revision": args.revision,
+            "trust_remote_code": args.trust_remote_code,
+            "token": args.use_auth_token,
+        }'''
 
-_PATCHED = '''    model_kwargs = {
-        "revision": args.revision,
-        "trust_remote_code": args.trust_remote_code,
-        "token": args.use_auth_token,
-        "attn_implementation": "eager",  # [whc-patch] gemma2 SDPA cutlassF fails here
-    }'''
+_PATCHED = '''        model_kwargs = {
+            "revision": args.revision,
+            "trust_remote_code": args.trust_remote_code,
+            "token": args.use_auth_token,
+            "attn_implementation": "eager",  # [whc-patch] gemma2 SDPA cutlassF fails here
+        }'''
 
 _MARKER = "[whc-patch] gemma2 SDPA"
 
