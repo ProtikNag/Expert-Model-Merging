@@ -60,6 +60,13 @@ ROW=$(echo "$MODELS" | grep -v '^$' | sed -n "$((SLURM_ARRAY_TASK_ID + 1))p")
 TAG=$(echo "$ROW" | awk '{print $1}')
 MODEL=$(echo "$ROW" | awk '{print $2}')
 
+# Use the base model's tokenizer for every checkpoint. Merging never changes the
+# vocab, but MergeBench's Merger.save re-serializes tokenizer.json with a newer
+# tokenizers lib than the lmeval env can parse ("data did not match any variant
+# of untagged enum ModelWrapper"). The original base tokenizer loads cleanly and
+# is identical, so we point all models at it.
+TOKENIZER_DIR="mb_ckpts/google__${BASE_NAME}"
+
 OUT="results/mb_eval/${BASE_NAME}/${TAG}"
 mkdir -p "$OUT"
 
@@ -69,7 +76,7 @@ LIMIT_ARG=""
 echo "[eval-math] task_id=${SLURM_ARRAY_TASK_ID} tag=${TAG} model=${MODEL} batch=${BATCH} limit=${LIMIT:-full} task=${TASK}"
 
 lm_eval --model hf \
-  --model_args "pretrained=${MODEL},dtype=bfloat16,attn_implementation=eager" \
+  --model_args "pretrained=${MODEL},tokenizer=${TOKENIZER_DIR},dtype=bfloat16,attn_implementation=eager" \
   --tasks "${TASK}" --device cuda:0 --batch_size "${BATCH}" ${LIMIT_ARG} \
   --output_path "${OUT}"
 
