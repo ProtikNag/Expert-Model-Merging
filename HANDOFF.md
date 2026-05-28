@@ -41,12 +41,17 @@ wins all 3 benchmarks among dataless methods and has the best cross-domain avg
 mbpp+ 0.4040 (#1 dataless, ties coding specialist 0.398 on mbpp+); coding_expert
 ceiling 0.321/0.398; math_expert floor 0.181/0.323. Cross-check holds on all 3.
 
-## NOW: adding Fisher to the table (data tier, our own clean impl)
-Decided NOT to run MergeBench's Fisher (DeepSpeed+trl two-stage, infeasible on our
-env). Instead compute diagonal Fisher ourselves and merge via our pipeline for a
-controlled ablation: fisher_merge (plain Fisher avg = Matena&Raffel precursor),
-whc_diag_fisher (our anchor + true Fisher), vs whc_diag (anchor + dataless
-taskvec). Code: scripts/mb_fisher_estimate.py + fisher_merge in llm_merge.py.
+## Fisher data-tier comparison — DONE (in TIER1_TABLE.md)
+Computed our own diagonal Fisher (256 samples/expert) and merged via our pipeline.
+Result (avg of gsm8k/heval+/mbpp+, %): whc_diag (dataless) 38.2 > fisher_merge 37.7
+> whc_diag_fisher 37.4. HEADLINE: the dataless task-vector proxy MATCHES/slightly
+beats true Fisher (whc_diag 38.2 vs whc_diag_fisher 37.4; ties gsm8k, wins coding)
+=> Fisher-quality merging with no data. Nuance: fisher_merge tops gsm8k among
+merges (49.4) — data helps math — but trails on coding and avg. Anchor ~wash here
+(whc_diag_fisher 37.4 vs fisher_merge 37.7). Caveat: Fisher on 256 samples (MB used
+1000); RegMean/RegMean++ still not run. whc_diag has best cross-domain avg of all
+12 models. Code: scripts/mb_fisher_estimate.py, mb_merge_fisher.py, fisher_merge in
+llm_merge.py; eval rows 10-11 in both drivers.
 
 ## MATH also has specialist brackets (full 1319, complete)
 math_expert 0.5603 (ceiling), coding_expert 0.3184. WHC recovers 68.5% of the
