@@ -90,9 +90,11 @@ def merge_checkpoints(method: str,
     """
     base = ShardedStateReader(base_dir)
     experts = [ShardedStateReader(d) for d in expert_dirs]
+    needs_fisher = (fisher_dirs is not None and
+                    (method == "fisher_merge"
+                     or (method == "whc_diag" and curvature == "fisher")))
     fishers = ([ShardedStateReader(d) for d in fisher_dirs]
-               if (method == "whc_diag" and curvature == "fisher"
-                   and fisher_dirs is not None) else None)
+               if needs_fisher else None)
     n = len(experts)
 
     keys = base.keys()
@@ -137,6 +139,25 @@ def merge_checkpoints(method: str,
                     num += f_i * w_i
                     den += f_i
                 out = num / (den + _EPS)
+
+            elif method == "fisher_merge":
+                # Plain Fisher-weighted average (Matena & Raffel 2022), NO
+                # anchor: w_M = sum_i F_i w_i / sum_i F_i. Where the Fisher is
+                # ~0 for every expert (the divide-by-zero collapse they patch by
+                # "defaulting to a target model"), fall back to the ensemble mean.
+                if fishers is None:
+                    raise ValueError("fisher_merge requires fisher_dirs.")
+                curv = [f.get(key).float() for f in fishers]
+                num = torch.zeros_like(w_pre)
+                den = torch.zeros_like(w_pre)
+                for f_i, w_i in zip(curv, w_experts):
+                    num += f_i * w_i
+                    den += f_i
+                w_bar = torch.zeros_like(w_pre)
+                for w in w_experts:
+                    w_bar += w
+                w_bar /= n
+                out = torch.where(den > 1e-8, num / (den + _EPS), w_bar)
 
             else:
                 raise ValueError(f"Unknown merge method: {method}")

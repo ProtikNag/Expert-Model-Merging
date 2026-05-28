@@ -61,6 +61,8 @@ Consensus ${REPO}/mb_merged/${BASE_NAME}/Consensus
 LocalizeAndStitch ${REPO}/mb_merged/${BASE_NAME}/LocalizeAndStitch
 math_expert ${REPO}/mb_ckpts/MergeBench__${BASE_NAME}_math
 coding_expert ${REPO}/mb_ckpts/MergeBench__${BASE_NAME}_coding
+fisher_merge ${REPO}/mb_merged/${BASE_NAME}/fisher_merge
+whc_diag_fisher ${REPO}/mb_merged/${BASE_NAME}/whc_diag_fisher
 "
 ROW=$(echo "$MODELS" | grep -v '^$' | sed -n "$((SLURM_ARRAY_TASK_ID + 1))p")
 TAG=$(echo "$ROW" | awk '{print $1}')
