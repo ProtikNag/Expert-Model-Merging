@@ -1,25 +1,25 @@
 #!/bin/sh
 #SBATCH --job-name=t2_merge
 #SBATCH -N 1
-#SBATCH -n 8
-#SBATCH --mem=180G
+#SBATCH -n 16
+#SBATCH --mem=600G
 #SBATCH --output job%A.%N.out
 #SBATCH --error  job%A.%N.err
-#SBATCH -p gpu-v100-32gb
-#SBATCH --gres=gpu:1
+#SBATCH -p BigMem-64core
 #SBATCH --time=08:00:00
 
 # =============================================================================
-# Tier 2 merge as a high-RAM batch job. Do NOT run the merge on the login node:
-# whc_diag briefly holds ~12 copies of the 128k-vocab embedding (~25-30 GB peak)
-# and the login cgroup OOM-kills it ("Killed", no traceback).
+# Tier 2 merge as a high-RAM CPU batch job on BigMem-64core (~2 TB/node). Do NOT
+# run the merge on the login node: whc_diag briefly holds ~12 copies of the
+# 128k-vocab embedding (~25-30 GB peak) and the login cgroup OOM-kills it
+# ("Killed", no traceback).
 #
-# 8B x 5 experts + base, all in fp32 at the widest key -> request lots of RAM.
-# The MergeBench baseline mergers additionally load full models (not streamed),
-# so 180 GB fits a 192 GB V100 node. No GPU is used by the merge math; the --gres line
-# only satisfies partitions that require it (gpu-v100-32gb nodes have the RAM and
-# are usually free). Override the partition with `sbatch -p <p>` if you have a
-# dedicated high-mem CPU partition.
+# The MergeBench baseline mergers are not streamed: TIES stacks all 5 task
+# vectors into one matrix (~160 GB single alloc), DARE/L&S allocate tens of GB in
+# torch.topk over the full flattened task vector. A 180 GB V100 node OOM-kills
+# TIES/DARE/L&S; the 2 TB BigMem node clears them with room to spare. The merge
+# math is CPU-only, so no --gres (BigMem has no GPUs). Override with
+# `sbatch -p <p> --mem=<m>` only if BigMem is saturated.
 #
 # METHODS controls which methods run (comma-separated --only list). Default is
 # the six NOT already done (task_arith completed on login). Run whc_diag FIRST
