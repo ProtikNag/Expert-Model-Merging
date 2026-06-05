@@ -17,8 +17,10 @@
 # across the free gpu-v100-32gb nodes; lower to %2 on the single-node L40S).
 #
 # Task names + batch sizes mirror MergeBench's scripts/evaluate.sh verbatim.
-# Llama-3.1-8B (unlike gemma2) needs NO eager-attention workaround, so SDPA is
-# left on. 8B in bf16 ~16GB weights -> target the 48GB L40S (or gpu-v100-32gb).
+# attn_implementation=eager is REQUIRED on the V100 (Volta) nodes: SDPA hits
+# "cutlassF: no kernel found to launch!" there (same failure as gemma2; it is
+# GPU-specific, not model-specific). Eager is the safe fallback on any GPU.
+# 8B in bf16 ~16GB weights -> gpu-v100-32gb (fans out) or the 48GB L40S.
 #
 # Tokenizer: pass the base tokenizer for every checkpoint. MergeBench's baseline
 # Merger.save re-serializes tokenizer.json with a tokenizers lib the lmeval env
@@ -85,7 +87,7 @@ run_group () {
   TASKS="$1"
   echo "[eval-lm] task_id=${SLURM_ARRAY_TASK_ID} tag=${TAG} tasks=${TASKS} batch=${BATCH} limit=${LIMIT:-full}"
   lm_eval --model hf \
-    --model_args "pretrained=${MODEL},tokenizer=${TOKENIZER_DIR},dtype=bfloat16" \
+    --model_args "pretrained=${MODEL},tokenizer=${TOKENIZER_DIR},dtype=bfloat16,attn_implementation=eager" \
     --tasks "${TASKS}" --device cuda:0 --batch_size "${BATCH}" ${LIMIT_ARG} \
     --output_path "${OUT}"
 }
