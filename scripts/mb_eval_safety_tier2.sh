@@ -8,7 +8,7 @@
 #SBATCH --error  job%A_%a.%N.err
 #SBATCH -p AI_Center_L40S
 #SBATCH --time=08:00:00
-#SBATCH --array=0-12%2
+#SBATCH --array=0-12%6
 
 # =============================================================================
 # Tier 2 safety eval (wildguardtest, harmbench, xstest, do_anything_now) for

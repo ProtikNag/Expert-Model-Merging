@@ -8,12 +8,13 @@
 #SBATCH --error  job%A_%a.%N.err
 #SBATCH -p AI_Center_L40S
 #SBATCH --time=12:00:00
-#SBATCH --array=0-12%2
+#SBATCH --array=0-12%6
 
 # =============================================================================
 # Tier 2 lm-eval driver: instruction (ifeval), math (gsm8k_cot), and
 # multilingual (m_mmlu/arc/hellaswag x {fr,es,de,ru}) for Llama-3.1-8B, all
-# five domains merged. One model per array task; %2 caps concurrency.
+# five domains merged. One model per array task; %6 caps concurrency (fan out
+# across the free gpu-v100-32gb nodes; lower to %2 on the single-node L40S).
 #
 # Task names + batch sizes mirror MergeBench's scripts/evaluate.sh verbatim.
 # Llama-3.1-8B (unlike gemma2) needs NO eager-attention workaround, so SDPA is
