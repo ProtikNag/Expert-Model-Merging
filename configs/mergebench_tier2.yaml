@@ -1,0 +1,62 @@
+# MergeBench Tier 2: all five domains on the largest base.
+#
+# Tier 1 (gemma-2-2b, N=2 math+coding) passed: HTCL wins the dataless tier and
+# has the best cross-domain average. Tier 2 widens to all five MergeBench domains
+# on the largest base, Llama-3.1-8B. Data-using baselines (RegMean/RegMean++) are
+# deferred — dataless tier only here.
+#
+# Expert repos follow MergeBench's naming: MergeBench/<base_name>_<domain>
+#   e.g. MergeBench/Llama-3.1-8B_math   (confirmed bf16 safetensors on HF).
+
+seed: 42
+
+base_model: meta-llama/Llama-3.1-8B   # gated; accept license + HF_TOKEN
+base_name: Llama-3.1-8B               # = base_model.split('/')[-1]
+
+# All five MergeBench domains. Tier 2 runs the full set (N=5).
+domains: [instruction, math, coding, safety, multilingual]
+tier_domains: [instruction, math, coding, safety, multilingual]
+
+download_dir: ./mb_ckpts
+mergebench_dir: ./MergeBench
+
+# Our methods (mergebench/llm_merge.py). whc_diag = HTCL (diagonal dataless WHC);
+# task_arith is a harness cross-check against MergeBench's TaskArithmetic.
+our_methods:
+  task_arith: {scale: 0.4}
+  whc_diag: {lam: 1.0e-4, curvature: taskvec}
+
+# MergeBench baseline classes (mergebench/mb_baselines.py). Dataless tier only.
+baselines_dataless:
+  TaskArithmetic: {scaling_coef: 0.4}
+  TIES: {scaling_coef: 0.4, K: 0.3, merge_func: sum}
+  DARE: {scaling_coef: 0.4, p: 0.9}
+  Consensus: {scaling_coef: 0.4, k: 2, lamda: 0.5}
+  LocalizeAndStitch: {sparsity: 0.1, dataless: true, sigmoid_bias: 3}
+
+# Deferred to a later data tier (needs MergeBench data env + GPU). Listed for
+# completeness; NOT run by --tier dataless/ours.
+baselines_data:
+  RegMean: {reduction: 0.5}
+  RegMeanPlusPlus: {reduction: 0.1}
+
+# MergeBench eval protocol (Table 3), reproduced by the three eval drivers.
+# Reference only; the drivers hardcode these so they stay in sync with the paper.
+eval:
+  instruction:   {harness: lm-eval,  tasks: [ifeval],  metric: "prompt_level accuracy"}
+  math:          {harness: lm-eval,  tasks: [gsm8k_cot], metric: "exact_match (8-shot CoT)"}
+  multilingual:  {harness: lm-eval,
+                  tasks: [m_mmlu_fr, arc_fr, hellaswag_fr,
+                          m_mmlu_es, arc_es, hellaswag_es,
+                          m_mmlu_de, arc_de, hellaswag_de,
+                          m_mmlu_ru, arc_ru, hellaswag_ru],
+                  metric: "mean acc / acc_norm over 4 langs x 3 tasks"}
+  coding:        {harness: bigcode,  tasks: [humanevalplus, mbppplus], metric: "pass@1"}
+  safety:        {harness: safety-eval,
+                  tasks: [wildguardtest, harmbench, xstest, do_anything_now],
+                  metric: "RTA (refuse-to-answer); XSTest accuracy"}
+
+paths:
+  merged: ./mb_merged
+  results: ./results/mergebench
+  logs: ./results/logs
