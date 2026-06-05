@@ -35,7 +35,7 @@ set -e
 hostname; date
 
 BASE_NAME="${BASE_NAME:-Llama-3.1-8B}"
-BASE_REPO_DIR="${BASE_REPO_DIR:-meta-llama__Llama-3.1-8B}"
+BASE_REPO_DIR="${BASE_REPO_DIR:-NousResearch__Meta-Llama-3.1-8B}"
 SAFETY_ENV="${SAFETY_ENV:-/work/pnag/envs/safety-eval}"
 SAFETY_DIR="${SAFETY_DIR:-/work/pnag/safety-eval-fork}"
 REPO="${REPO:-/work/pnag/Expert-Model-Merging}"

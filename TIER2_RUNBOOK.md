@@ -35,8 +35,13 @@ git push
 cd /work/pnag/Expert-Model-Merging && git pull
 ```
 
-`meta-llama/Llama-3.1-8B` is gated. Accept the license on HF and confirm
-`hf_token.txt` (repo root, gitignored) holds a token with access.
+**Base model.** The official `meta-llama/Llama-3.1-8B` is gated and access was
+pending, so the config points at the ungated mirror `NousResearch/Meta-Llama-3.1-8B`
+(byte-identical re-upload). The experts and merged-checkpoint paths still use
+`base_name: Llama-3.1-8B`. Once official access is granted, download the canonical
+repo and run `scripts/mb_verify_base.py` (Step 6.5) to confirm the merge anchor was
+bit-identical. `hf_token.txt` (repo root, gitignored) needs a valid token; the
+mirror and the five experts download cleanly with it (nothing here is gated).
 
 ## Step 1 — download base + 5 experts
 
@@ -161,6 +166,23 @@ the empty cells. Bold the column maxima by hand.
 - safety: `results/mb_eval/Llama-3.1-8B/<tag>/safety_eval.json`. Schema varies by
   safety-eval version, so the parser is best-effort — eyeball the safety column
   against the raw JSON before trusting it.
+
+## Step 6.5 — verify the base mirror (once official access lands)
+
+The merge anchored task vectors at the ungated `NousResearch/Meta-Llama-3.1-8B`
+mirror. When `meta-llama/Llama-3.1-8B` access is granted, download it and confirm
+the mirror was bit-identical:
+
+```sh
+python scripts/mb_download.py --config configs/mergebench_tier2.yaml \
+  --domains ""   # base only, or temporarily point base_model at meta-llama/...
+python scripts/mb_verify_base.py \
+  --mirror mb_ckpts/NousResearch__Meta-Llama-3.1-8B \
+  --official mb_ckpts/meta-llama__Llama-3.1-8B
+```
+
+A clean run (0 mismatches, max diff 0) means no redo. If it differs non-trivially,
+re-merge from the official base and re-run the evals.
 
 ## Go / no-go
 

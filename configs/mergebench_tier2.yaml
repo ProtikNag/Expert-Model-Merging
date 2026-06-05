@@ -10,8 +10,13 @@
 
 seed: 42
 
-base_model: meta-llama/Llama-3.1-8B   # gated; accept license + HF_TOKEN
-base_name: Llama-3.1-8B               # = base_model.split('/')[-1]
+# Ungated mirror of meta-llama/Llama-3.1-8B (byte-identical re-upload). The
+# official repo is gated and pending access; the MergeBench experts were fine-
+# tuned from the Meta init, so verify the mirror matches once access lands
+# (scripts/mb_verify_base.py). base_name stays Llama-3.1-8B so expert repos and
+# merged-checkpoint paths are unchanged.
+base_model: NousResearch/Meta-Llama-3.1-8B
+base_name: Llama-3.1-8B
 
 # All five MergeBench domains. Tier 2 runs the full set (N=5).
 domains: [instruction, math, coding, safety, multilingual]

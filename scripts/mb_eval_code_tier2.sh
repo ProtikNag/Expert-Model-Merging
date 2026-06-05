@@ -32,7 +32,7 @@ set -e
 hostname; date
 
 BASE_NAME="${BASE_NAME:-Llama-3.1-8B}"
-BASE_REPO_DIR="${BASE_REPO_DIR:-meta-llama__Llama-3.1-8B}"
+BASE_REPO_DIR="${BASE_REPO_DIR:-NousResearch__Meta-Llama-3.1-8B}"
 BIGCODE_ENV="${BIGCODE_ENV:-/work/pnag/envs/bigcode}"
 BIGCODE_DIR="${BIGCODE_DIR:-/work/pnag/bigcode-evaluation-harness}"
 REPO="${REPO:-/work/pnag/Expert-Model-Merging}"

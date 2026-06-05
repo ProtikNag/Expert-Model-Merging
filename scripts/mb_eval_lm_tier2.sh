@@ -34,7 +34,7 @@ set -e
 hostname; date
 
 BASE_NAME="${BASE_NAME:-Llama-3.1-8B}"
-BASE_REPO_DIR="${BASE_REPO_DIR:-meta-llama__Llama-3.1-8B}"
+BASE_REPO_DIR="${BASE_REPO_DIR:-NousResearch__Meta-Llama-3.1-8B}"
 LMEVAL_ENV="${LMEVAL_ENV:-/work/pnag/envs/lmeval}"
 BATCH="${BATCH:-8}"
 LIMIT="${LIMIT:-}"
