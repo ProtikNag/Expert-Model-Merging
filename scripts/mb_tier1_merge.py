@@ -102,6 +102,7 @@ def main() -> None:
                     save_dir=save_dir,
                     scale=hp.get("scale", 0.4),
                     lam=hp.get("lam", 1e-4),
+                    alpha=hp.get("alpha", 1.0),
                     curvature=hp.get("curvature", "taskvec"))
             else:
                 run_baseline(algo=name, base_dir=base_dir,

@@ -39,9 +39,17 @@ hostname; date
 BASE_NAME="${BASE_NAME:-Llama-3.1-8B}"
 BASE_REPO_DIR="${BASE_REPO_DIR:-NousResearch__Meta-Llama-3.1-8B}"
 LMEVAL_ENV="${LMEVAL_ENV:-/work/pnag/envs/lmeval}"
-BATCH="${BATCH:-8}"
+BATCH="${BATCH:-8}"        # integer, or 'auto' to let lm-eval size it to memory
 LIMIT="${LIMIT:-}"
-GROUP="${GROUP:-all}"     # all | instruction | math | multilingual
+GROUP="${GROUP:-all}"      # all | instruction | math | multilingual
+# ATTN: 'eager' is REQUIRED on V100 (cutlassF). On the L40S (Ada) set ATTN=sdpa
+# for the multilingual loglikelihood pass -- it is far faster and uses less
+# memory, which the 378k-request okapi suite needs to avoid OOM/12h-walltime.
+ATTN="${ATTN:-eager}"
+# TOK: 'base' points every model at the base tokenizer (dodges the baseline
+# Merger.save tokenizer breakage). 'self' uses each model's OWN tokenizer --
+# needed for the pure expert rows so their ceiling scores come out right.
+TOK="${TOK:-base}"
 
 cd /work/pnag/Expert-Model-Merging
 
@@ -74,7 +82,13 @@ ROW=$(echo "$MODELS" | grep -v '^$' | sed -n "$((SLURM_ARRAY_TASK_ID + 1))p")
 TAG=$(echo "$ROW" | awk '{print $1}')
 MODEL=$(echo "$ROW" | awk '{print $2}')
 
-TOKENIZER_DIR="mb_ckpts/${BASE_REPO_DIR}"
+# Tokenizer: base for merges (TOK=base), or the model's own dir (TOK=self) so
+# the expert ceiling rows score correctly. When self, omit the override entirely.
+if [ "$TOK" = "self" ]; then
+  TOK_ARG=""
+else
+  TOK_ARG=",tokenizer=mb_ckpts/${BASE_REPO_DIR}"
+fi
 OUT="results/mb_eval/${BASE_NAME}/${TAG}"
 mkdir -p "$OUT"
 
@@ -85,9 +99,9 @@ ML_TASKS="m_mmlu_fr,arc_fr,hellaswag_fr,m_mmlu_es,arc_es,hellaswag_es,m_mmlu_de,
 
 run_group () {
   TASKS="$1"
-  echo "[eval-lm] task_id=${SLURM_ARRAY_TASK_ID} tag=${TAG} tasks=${TASKS} batch=${BATCH} limit=${LIMIT:-full}"
+  echo "[eval-lm] task_id=${SLURM_ARRAY_TASK_ID} tag=${TAG} tasks=${TASKS} batch=${BATCH} attn=${ATTN} tok=${TOK} limit=${LIMIT:-full}"
   lm_eval --model hf \
-    --model_args "pretrained=${MODEL},tokenizer=${TOKENIZER_DIR},dtype=bfloat16,attn_implementation=eager" \
+    --model_args "pretrained=${MODEL}${TOK_ARG},dtype=bfloat16,attn_implementation=${ATTN}" \
     --tasks "${TASKS}" --device cuda:0 --batch_size "${BATCH}" ${LIMIT_ARG} \
     --output_path "${OUT}"
 }

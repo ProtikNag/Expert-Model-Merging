@@ -55,6 +55,7 @@ def merge_checkpoints(method: str,
                       *,
                       scale: float = 0.4,
                       lam: float = 1e-4,
+                      alpha: float = 1.0,
                       curvature: str = "taskvec",
                       fisher_dirs: Optional[List[str]] = None,
                       log_every: int = 50) -> Dict[str, float]:
@@ -74,6 +75,14 @@ def merge_checkpoints(method: str,
         Task-arithmetic scaling coefficient (``task_arith`` only).
     lam:
         Tikhonov / anchor coefficient (``whc_diag`` only).
+    alpha:
+        Task-vector scale for ``whc_diag`` only. The closed form returns a
+        curvature-weighted *mean* of the experts, which dilutes each expert's
+        update by ~1/N relative to a *sum* of task vectors (task arithmetic).
+        ``alpha`` rescales the net deviation from base, ``w_M = w_pre + alpha *
+        (w_M^HTCL - w_pre)``, so ``alpha=1`` is the plain closed form and
+        ``alpha>1`` compensates the averaging dilution (try ``alpha ~ N``). This
+        is the analogue of task arithmetic's scaling coefficient.
     curvature:
         ``"taskvec"`` (dataless squared task vector) or ``"fisher"``
         (``whc_diag`` only).
@@ -139,6 +148,11 @@ def merge_checkpoints(method: str,
                     num += f_i * w_i
                     den += f_i
                 out = num / (den + _EPS)
+                # Rescale the net update away from base. alpha=1 is the plain
+                # closed form; alpha>1 undoes the ~1/N averaging dilution so the
+                # merged model applies more of each expert's task vector.
+                if alpha != 1.0:
+                    out = w_pre + alpha * (out - w_pre)
 
             elif method == "fisher_merge":
                 # Plain Fisher-weighted average (Matena & Raffel 2022), NO

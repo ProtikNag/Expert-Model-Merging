@@ -167,6 +167,72 @@ the empty cells. Bold the column maxima by hand.
   safety-eval version, so the parser is best-effort — eyeball the safety column
   against the raw JSON before trusting it.
 
+## Step 7 — make HTCL competitive (the sweep)
+
+The plain closed form (`lam=1e-4`, `alpha=1`) underperforms the dataless baselines
+at N=5 because it returns a curvature-weighted *mean* of the experts, diluting each
+update by ~1/N versus a *sum* of task vectors. The fix is the new `alpha`
+task-vector scale (`w_M = w_pre + alpha*(w_M^HTCL - w_pre)`, `alpha ~ N` undoes the
+dilution) plus a tuned `lam`, evaluated fairly the same way the baselines are tuned.
+
+**7a. Dataless (lam, alpha) sweep — do first.** Merge the grid on BigMem, then
+gate-eval on math + instruction + coding only (skip the slow/OOM multilingual):
+
+```sh
+# merge the grid (default 3 lam x 4 alpha = 12 variants, ~4 h on BigMem)
+sbatch scripts/mb_sweep_merge.sh
+# fixup baseline-style tokenizers not needed (whc variants save base tokenizer)
+
+# gate-eval all variants (LIMIT=500 gsm8k/ifeval; coding n_samples=5). Set the
+# array to the variant count (12 -> 0-11).
+sbatch -p gpu-v100-32gb --array=0-11%6 scripts/mb_eval_sweep_lm.sh
+sbatch -p gpu-v100-32gb --array=0-11%6 scripts/mb_eval_sweep_code.sh
+
+# rank
+python scripts/mb_sweep_table.py --config configs/mergebench_tier2.yaml
+```
+
+The ranker prints each variant's gate score and whether the best HTCL clears the
+top dataless baseline. Promote the winner to the full four-domain eval by adding
+its tag to the main drivers (or just eval it full: `LIMIT=0` on the sweep lm
+driver, `N_SAMPLES=10` on the sweep code driver, restricted to its index).
+
+**7b. Data (Fisher) sweep — optional second.** Estimate per-expert diagonal Fisher,
+then add it to the sweep:
+
+```sh
+# VERIFY the <domain>_val dataset ids in the script exist on HF first
+sbatch scripts/mb_fisher_tier2.sh
+# add the Fisher curvature to the grid (doubles the variant count)
+FISHER_ROOT=mb_fisher/Llama-3.1-8B sbatch scripts/mb_sweep_merge.sh
+# re-run the sweep evals with the manifest now listing the fisher variants too
+```
+
+**7c. Data iterative (`whc_tree`) — deferred.** The GLUE winner that beat RegMean
+is the Gram-based iterative merge; porting it to billion-param LLMs needs
+activation statistics (RegMean-style) and is the next phase if 7a/7b do not clear
+the baselines. See [[project_whc_variants_roadmap]] and `HANDOFF.md` PARKED items.
+
+## Step 8 — finish the main table (infra fixes)
+
+**Multilingual on L40S.** It OOM'd / was infeasibly slow on V100 under eager
+(378k loglikelihood requests). Re-run just that group on the L40S with SDPA and
+auto batch:
+
+```sh
+ATTN=sdpa BATCH=auto GROUP=multilingual sbatch -p AI_Center_L40S --array=0-12%2 scripts/mb_eval_lm_tier2.sh
+```
+
+(`ATTN=`/`GROUP=`/`BATCH=` are env vars and must all come **before** `sbatch`.)
+
+**Expert ceilings.** The pure-expert rows scored below base because the base
+tokenizer override broke their chat format. Re-run the expert indices with their
+own tokenizer:
+
+```sh
+TOK=self sbatch -p gpu-v100-32gb --array=8-12%5 scripts/mb_eval_lm_tier2.sh
+```
+
 ## Step 6.5 — verify the base mirror (once official access lands)
 
 The merge anchored task vectors at the ungated `NousResearch/Meta-Llama-3.1-8B`
