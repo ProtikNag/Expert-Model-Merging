@@ -198,3 +198,53 @@ $\lambda$ during tuning, so only $\lambda$ is exposed as a hyperparameter.
 
 If these hold on RoBERTa-base + 7 GLUE tasks, WHC is a defensible
 contribution as **dataless, one-shot, curvature-aware merging**.
+
+---
+
+## 11. N-scaling dilution and the update-scale $\alpha$ (MergeBench Tier 2)
+
+**Naming.** The merging method is branded **HTCL** in the writeup; the dataless
+diagonal instance (Eq. 9 with squared-task-vector curvature) is `whc_diag` in code.
+
+**Observation.** On MergeBench Tier 1 (gemma-2-2b, $N=2$) HTCL won the dataless
+tier. On Tier 2 (Llama-3.1-8B, $N=5$) the *same* closed form (`lam=1e-4`)
+**underperformed every dataless baseline** on the math+instruction+coding gate
+(instr 15.3, math 73.2 vs baselines $\sim$25–27 / $\sim$78).
+
+**Diagnosis.** Substituting $w_i = w_\text{pre} + \Delta_i$ into the diagonal
+closed form, the net update is
+$$
+w_M - w_\text{pre} \;=\;
+\frac{\sum_i \Delta_i^{3} + (\lambda/N)\sum_i \Delta_i}
+     {\sum_i \Delta_i^{2} + \lambda}.
+$$
+For small $\lambda$ this is $\approx \sum_i \Delta_i^3 / \sum_i \Delta_i^2$, a
+curvature-weighted **mean** of the per-expert task vectors. A mean shrinks each
+expert's contribution by $\sim 1/N$ relative to task arithmetic's **sum**
+$\,\text{scale}\cdot\sum_i \Delta_i$. At $N=2$ the dilution is mild; at $N=5$ it
+is severe, so HTCL under-applies every expert and trails the baselines. The
+$\sum_i \Delta_i^3$ numerator also partially cancels under sign conflict, which is
+worse the more experts disagree.
+
+**Modification — update scale $\alpha$.** Rescale the net deviation from base:
+$$
+w_M \;=\; w_\text{pre} \;+\; \alpha\,\big(w_M^{\text{HTCL}} - w_\text{pre}\big),
+$$
+with $\alpha \approx N$ compensating the averaging dilution. This is the analogue
+of task arithmetic's scaling coefficient and is **distinct from the per-expert
+weights $\alpha_i$ of §6** (those stay uniform $1/N$; this is a single global
+post-hoc scale). $\alpha=1$ recovers the plain closed form, so the change is
+backward compatible.
+
+**Implementation.** `merge_checkpoints(..., alpha=...)` in
+[`mergebench/llm_merge.py`](mergebench/llm_merge.py); swept by
+[`scripts/mb_sweep_whc.py`](scripts/mb_sweep_whc.py) over a $(\lambda,\alpha)$ grid.
+
+**Evidence (gate, dataless, $\lambda=10^{-3}$).** instr $14\!\to\!27\!\to\!31$ and
+math $74\!\to\!80\!\to\!77$ as $\alpha: 1\!\to\!2\!\to\!3$; at $\alpha=3$
+instruction beats every baseline. So $\alpha$ recovers HTCL on the measured
+domains. **Caveat:** $\alpha$ is tuned on math+instruction+coding only. A
+five-domain win is not established until the promoted $(\lambda,\alpha)$ is
+evaluated on safety and multilingual too — a larger $\alpha$ is a more aggressive
+merge and is the kind of change that can erode safety/refusal behavior. Confirm on
+the full five-domain average before claiming the win.

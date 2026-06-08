@@ -13,6 +13,31 @@ Reference papers in [`docs/`](docs/):
   ICLR 2025, SMoE-specific, not a direct comparison), RegMean++ (Nguyen et
   al., 2025 preprint).
 
+## MergeBench experiments (current focus)
+
+The method is branded **HTCL** (dataless, one-shot, curvature-aware; `whc_diag`
+in code). It is being validated on [MergeBench](https://github.com/uiuctml/MergeBench).
+Operational guide: [`TIER2_RUNBOOK.md`](TIER2_RUNBOOK.md). Active branch:
+`tier2-llama-scaffold`.
+
+- **Tier 1 — DONE, PASS** (gemma-2-2b, math+coding, N=2). HTCL wins the dataless
+  tier on all three benchmarks and has the best cross-domain average of all 12
+  models; the dataless task-vector proxy matches true Fisher. Table:
+  [`results/mergebench/TIER1_TABLE.md`](results/mergebench/TIER1_TABLE.md).
+- **Tier 2 — IN PROGRESS** (Llama-3.1-8B, all five domains, N=5). The plain
+  closed form underperformed at N=5 because it returns a curvature-weighted *mean*
+  of the experts, diluting each update by ~1/N versus task arithmetic's *sum*. The
+  fix is an **update scale** `alpha` (`w_M = w_pre + alpha*(w_M^HTCL - w_pre)`,
+  `alpha ~ N`); a (lam, alpha) sweep shows `alpha=2-3` recovers HTCL on the
+  math+instruction+coding gate. A five-domain win (incl. safety) is not yet
+  established. Derivation: [`NOTES.md`](NOTES.md) §11. Status & next steps:
+  [`HANDOFF.md`](HANDOFF.md).
+
+The MergeBench code is independent of the GLUE pipeline below: merging in
+[`mergebench/llm_merge.py`](mergebench/llm_merge.py), drivers in
+[`scripts/mb_*`](scripts/), config in
+[`configs/mergebench_tier2.yaml`](configs/mergebench_tier2.yaml).
+
 ## Pilot finding (RotatedMNIST, archived)
 
 See [`results/pilot/ANALYSIS.md`](results/pilot/ANALYSIS.md) and
