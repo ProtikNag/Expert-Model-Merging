@@ -33,32 +33,45 @@ N=2 but lost at N=5. Fix (in `mergebench/llm_merge.py`): an **update scale alpha
 `w_M = w_pre + alpha*(w_M^HTCL - w_pre)`, with `alpha ~ N` undoing the dilution.
 Distinct from the per-expert weights (still uniform 1/N). See NOTES.md §11.
 
-### Sweep result so far (POSITIVE)
+### Sweep result — COMPLETE, and the verdict is a TIE (not a win)
 `scripts/mb_sweep_whc.py` merged a 3 lam x 4 alpha dataless grid; gate-eval via
-`scripts/mb_eval_sweep_{lm,code}.sh` (math+instr+coding only, LIMIT=500, n_samples=5).
-At lam=1e-3: instr **14 -> 27 -> 31** as alpha 1->2->3 (alpha=3 beats every
-baseline's 27.0); math **74 -> 80 -> 77**. Partial gate (math+instr): a3=54.0,
-a2=53.3 > best baseline 52.75. **alpha rescued HTCL on the measured domains.**
-Coding gate was still running at handoff; other lam blocks pending. Rank with
-`python scripts/mb_sweep_table.py --config configs/mergebench_tier2.yaml`.
+`scripts/mb_eval_sweep_{lm,code}.sh` (math+instr+coding, LIMIT=500, n_samples=5);
+rank with `scripts/mb_sweep_table.py`. Best variant **`whc_tv_l1e-3_a2` (alpha=2)
+gates at 51.3**, just UNDER Consensus 51.8 / TaskArithmetic 51.6. **No (lam, alpha)
+clears the baseline cluster.** Why: alpha raises math+instruction sharply (instr
+14->27->31 as alpha 1->2->3) but **trades away coding** (heval+/mbpp+ fall as alpha
+rises); a single global alpha cannot satisfy instruction (wants high alpha) and
+coding (wants low alpha) at once, so the net is a wash. The early "alpha rescued
+HTCL" read was from math+instr ONLY; with coding in, it is a statistical tie.
 
-## OPEN QUESTION — does it hold for all five?
-We have tuned alpha on math+instr+coding only. Two unknowns:
-1. **Coding** — HTCL's weak spot (heval+ 41.5). Data landing; could go either way.
-2. **Safety** — UNTESTED (the 4th eval env is not built) and the real risk: a more
-   aggressive merge (larger alpha) is exactly what erodes refusal behavior. A
-   five-task win is NOT established until the promoted variant is evaluated on all
-   five domains incl. safety and the five-domain average still beats baselines.
+Full four-domain table (multilingual now in; safety pending) in
+[`results/mergebench/TIER1_TABLE.md`](results/mergebench/TIER1_TABLE.md): tuned HTCL
+~ baselines (~52), default HTCL (alpha=1) last among merges (47.9). Multilingual is
+non-discriminative (~52-54 for all, base included).
+
+## CONCLUSION — the dataless contribution is a tie, not SOTA
+At N=5, tuned HTCL is competitive with but does not beat the dataless tier. Polishing
+alpha will not change this (the coding/instruction trade-off is structural). The
+leverage for a stronger result is NOT the dataless sweep. See the strategy notes in
+the conversation: target TMLR/CoLLAs/workshop, not a dataless-SOTA claim.
 
 ## Next steps (in order)
-1. Finish the gate; `mb_sweep_table.py` to pick the best (lam, alpha) — likely
-   `whc_tv_l1e-3_a2` or `_a3`.
-2. Promote the winner to a FULL eval: math+instr+coding at full size/n_samples=10,
-   plus multilingual on L40S (ATTN=sdpa). Add its row to the Tier 2 table.
-3. **Build the safety env** (safety-eval-fork + vLLM, TIER2_RUNBOOK Step 5) and run
-   safety for the winner + baselines. Confirm the five-domain average holds.
-4. If safety drops under the winning alpha: try a smaller alpha or a safety-aware
-   anchor — do NOT abandon alpha; let data decide.
+1. **Port `whc_tree` (data, iterative variant) to MergeBench and test vs
+   RegMean/RegMean++.** Highest-leverage experiment — the real shot at a
+   "beats the strong baseline" headline. GLUE precedent: whc_tree 0.667 > RegMean
+   0.609. Needs RegMean-style activation statistics on a data slice + the iterative
+   tree merge (new code). This decides whether the paper is a tie-study or stronger.
+2. **Complete the table honestly:** build the safety env (safety-eval-fork + vLLM,
+   TIER2_RUNBOOK Step 5), full-eval the best dataless variant `l1e-3_a2`
+   (LIMIT=0, n_samples=10, + multilingual on L40S ATTN=sdpa), run safety for the
+   merges + baselines. Safety is the one domain where the tie could become a loss
+   (aggressive merge erodes refusal).
+3. **Fix the math expert ceiling** — gsm8k still 36.8 < base; the `TOK=self` rerun
+   did not take. Quick check (did 21561683 run? is its results file newer?).
+4. **Add multi-seed** before any submission — single seed is the biggest reviewer
+   objection.
+5. Lock framing around the unification + the N-scaling dilution analysis (+ data
+   win if #1 lands).
 
 ## Eval state (as of handoff)
 - Merges math+instr+coding: done (cross-check holds: our task_arith ~ MergeBench

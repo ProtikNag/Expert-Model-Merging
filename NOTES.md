@@ -240,11 +240,25 @@ backward compatible.
 [`mergebench/llm_merge.py`](mergebench/llm_merge.py); swept by
 [`scripts/mb_sweep_whc.py`](scripts/mb_sweep_whc.py) over a $(\lambda,\alpha)$ grid.
 
-**Evidence (gate, dataless, $\lambda=10^{-3}$).** instr $14\!\to\!27\!\to\!31$ and
-math $74\!\to\!80\!\to\!77$ as $\alpha: 1\!\to\!2\!\to\!3$; at $\alpha=3$
-instruction beats every baseline. So $\alpha$ recovers HTCL on the measured
-domains. **Caveat:** $\alpha$ is tuned on math+instruction+coding only. A
-five-domain win is not established until the promoted $(\lambda,\alpha)$ is
-evaluated on safety and multilingual too — a larger $\alpha$ is a more aggressive
-merge and is the kind of change that can erode safety/refusal behavior. Confirm on
-the full five-domain average before claiming the win.
+**Evidence (gate, dataless, $\lambda=10^{-3}$; math+instr+coding, LIMIT=500).**
+$\alpha$ lifts math and instruction sharply (instr $14\!\to\!27\!\to\!31$, math
+$74\!\to\!80\!\to\!77$ as $\alpha: 1\!\to\!2\!\to\!3$) but **trades away coding**
+(heval+/mbpp+ fall monotonically as $\alpha$ rises: mbpp+ $55\!\to\!53\!\to\!48$).
+Instruction wants high $\alpha$, coding wants low $\alpha$, and a single global
+$\alpha$ cannot serve both.
+
+**Verdict.** No $(\lambda,\alpha)$ clears the dataless baseline cluster. The best
+variant `whc_tv_l1e-3_a2` ($\alpha=2$) gates at 51.3 vs Consensus 51.8 / Task
+Arithmetic 51.6 — a **statistical tie, not a win** (gate noise $\sim$2 pts). So
+$\alpha$ makes HTCL *competitive* with the dataless tier at $N=5$ but does not beat
+it; the trade-off is structural, not a tuning artifact. The averaging dilution
+diagnosis is correct and useful as analysis, but the dataless result is a tie.
+
+**Implication for the contribution.** The leverage for a stronger result is the
+*data*-using iterative variant (`whc_tree`, §7's "catch-up") against
+RegMean/RegMean++, not further dataless tuning. The dataless tie + the N-scaling
+dilution analysis + (if it lands) a data-tier win is the realistic story. A
+domain-adaptive scale (per-expert or per-parameter $\alpha$ in place of one global
+scale) is an open lead suggested directly by the coding/instruction tension. Safety
+(untested) is the one domain where the tie could become a loss, since larger
+$\alpha$ is a more aggressive merge.
