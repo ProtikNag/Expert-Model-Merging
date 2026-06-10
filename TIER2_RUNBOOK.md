@@ -208,10 +208,13 @@ FISHER_ROOT=mb_fisher/Llama-3.1-8B sbatch scripts/mb_sweep_merge.sh
 # re-run the sweep evals with the manifest now listing the fisher variants too
 ```
 
-**7c. Data iterative (`whc_tree`) — deferred.** The GLUE winner that beat RegMean
-is the Gram-based iterative merge; porting it to billion-param LLMs needs
-activation statistics (RegMean-style) and is the next phase if 7a/7b do not clear
-the baselines. See [[project_whc_variants_roadmap]] and `HANDOFF.md` PARKED items.
+**7c. Data tier (`whc_gram` = HTCL-data) — now implemented, see Step 9.** The
+GLUE winner that beat RegMean is the Gram-based merge. It is ported to the 8B
+scale as the `whc_gram` method (single-pass N-expert RegMean with a
+ridge-toward-mean and an optional Fisher ridge) plus the iterative catch-up loop.
+This is the real shot
+at clearing the dataless tie, since 7a/7b show one global alpha cannot serve
+instruction and coding at once. Run it per Step 9.
 
 ## Step 8 — finish the main table (infra fixes)
 
@@ -232,6 +235,69 @@ own tokenizer:
 ```sh
 TOK=self sbatch -p gpu-v100-32gb --array=8-12%5 scripts/mb_eval_lm_tier2.sh
 ```
+
+## Step 9 — data tier (`whc_gram` = HTCL-data vs RegMean / Fisher)
+
+The data-using merge. Three jobs: estimate per-expert input Grams (GPU), run the
+`whc_gram` merge (high-RAM CPU), gate-eval via the existing sweep drivers.
+
+**9a. Estimate Grams (GPU array, one domain per task).** Verify the `<domain>_val`
+dataset ids first (same caveat as Fisher). The default excludes `mlp.down_proj`
+so the per-expert accumulator fits 96 GB; that is a fast, tractable first pass.
+
+```sh
+# VERIFY MergeBench/<domain>_val ids exist on HF (must match the Fisher ids)
+sbatch scripts/mb_gram_tier2.sh                          # 5 domains, no down_proj
+# faithful all-Linear version (needs a high-RAM node; V100 may not grant it):
+EXCLUDE="" sbatch -p AI_Center_L40S --mem=200G scripts/mb_gram_tier2.sh
+```
+
+**9b. Merge (high-RAM CPU on BigMem).** Writes `whc_gram_l<lam>_g<gamma>` dirs and
+a manifest the sweep evals read.
+
+```sh
+LAMS=0,1e-3,1e-2,1e-1 GAMMAS=0 sbatch scripts/mb_merge_whc_gram.sh
+# lam=0 is plain RegMean (the ablation point); lam>0 is the ridge toward the mean.
+# Add the Fisher ridge once mb_fisher/ exists:
+LAMS=1e-3 GAMMAS=0.1,1.0 FISHER_ROOT=mb_fisher/Llama-3.1-8B sbatch scripts/mb_merge_whc_gram.sh
+```
+
+**9c. Gate-eval (reuse the sweep drivers via the whc_gram manifest).** Set the
+array to the variant count (4 lams -> `0-3`).
+
+```sh
+MANIFEST=mb_merged/Llama-3.1-8B/whc_gram_manifest.txt \
+  sbatch -p gpu-v100-32gb --array=0-3%4 scripts/mb_eval_sweep_lm.sh
+MANIFEST=mb_merged/Llama-3.1-8B/whc_gram_manifest.txt \
+  sbatch -p AI_Center_L40S --array=0-3%4 scripts/mb_eval_sweep_code.sh
+python scripts/mb_sweep_table.py --config configs/mergebench_tier2.yaml \
+  --manifest mb_merged/Llama-3.1-8B/whc_gram_manifest.txt
+```
+
+**9d. Iterative catch-up (`K>=1`, the GLUE winner's edge).** Re-estimate each
+domain's Grams *on the round-(k-1) merged model*, then re-merge the original
+experts with the refreshed Grams. Reuses the same two scripts, only `--expert`
+(now the merged dir) and `--out` (a round-`k` Gram dir) change:
+
+```sh
+BEST=mb_merged/Llama-3.1-8B/whc_gram_l1e-3_g0          # pick the 9c winner
+for D in instruction math coding safety multilingual; do
+  python -u scripts/mb_gram_estimate.py --expert "$BEST" \
+    --tokenizer mb_ckpts/NousResearch__Meta-Llama-3.1-8B \
+    --dataset MergeBench/${D}_val --out mb_grams/Llama-3.1-8B_k1/${D} \
+    --exclude-modules down_proj
+done
+GRAM_ROOT=mb_grams/Llama-3.1-8B_k1 LAMS=1e-3 GAMMAS=0 sbatch scripts/mb_merge_whc_gram.sh
+# eval the K=1 variant the same way as 9c; repeat for K=2 if it still improves.
+```
+
+**Baselines for the head-to-head.** Fisher (`fisher_merge`, `whc_diag_fisher`)
+is already wired — `scripts/mb_merge_fisher.py` after Step 7b's `mb_fisher/`.
+MergeBench's own `RegMean`/`RegMeanPlusPlus` are data-using and need MergeBench's
+data pipeline deps installed (not stubbed) plus the task datasets; run them via
+`mb_tier1_merge.py --tier all --only RegMean,RegMeanPlusPlus` once that env is
+built. `whc_gram` at `lam=0` is our internal RegMean reference if theirs is
+blocked.
 
 ## Step 6.5 — verify the base mirror (once official access lands)
 

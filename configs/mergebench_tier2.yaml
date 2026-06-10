@@ -39,11 +39,26 @@ baselines_dataless:
   Consensus: {scaling_coef: 0.4, k: 2, lamda: 0.5}
   LocalizeAndStitch: {sparsity: 0.1, dataless: true, sigmoid_bias: 3}
 
-# Deferred to a later data tier (needs MergeBench data env + GPU). Listed for
-# completeness; NOT run by --tier dataless/ours.
+# Data tier (needs per-expert input Grams from scripts/mb_gram_estimate.py).
+# RegMean / RegMean++ are MergeBench's own data baselines (run via their harness).
+# Listed for completeness; NOT run by --tier dataless/ours.
 baselines_data:
   RegMean: {reduction: 0.5}
   RegMeanPlusPlus: {reduction: 0.1}
+
+# Our data-using method (mergebench/llm_merge.py whc_gram = HTCL-data, the LLM
+# port of the GLUE whc_tree winner). Run via scripts/mb_merge_whc_gram.py, NOT
+# mb_tier1_merge.py (it needs grams_dirs). lam = ridge toward the ensemble mean
+# (0 = plain RegMean); gamma = Fisher-ridge weight (needs mb_fisher/). The
+# iterative catch-up (K>=1) re-estimates Grams on the merged model (see runbook).
+our_methods_data:
+  whc_gram:
+    lam_grid:   [0, 1.0e-3, 1.0e-2, 1.0e-1]
+    gamma_grid: [0]                 # set e.g. [0.1, 1.0] once Fisher is computed
+    K_grid:     [0]                 # 0 = single pass; 1-2 = iterative re-linearization
+    # Start with exclude_modules=down_proj for a tractable first pass; drop it
+    # for the faithful all-Linear RegMean comparison (needs a high-RAM node).
+    exclude_modules: down_proj
 
 # MergeBench eval protocol (Table 3), reproduced by the three eval drivers.
 # Reference only; the drivers hardcode these so they stay in sync with the paper.

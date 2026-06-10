@@ -56,11 +56,18 @@ leverage for a stronger result is NOT the dataless sweep. See the strategy notes
 the conversation: target TMLR/CoLLAs/workshop, not a dataless-SOTA claim.
 
 ## Next steps (in order)
-1. **Port `whc_tree` (data, iterative variant) to MergeBench and test vs
-   RegMean/RegMean++.** Highest-leverage experiment — the real shot at a
-   "beats the strong baseline" headline. GLUE precedent: whc_tree 0.667 > RegMean
-   0.609. Needs RegMean-style activation statistics on a data slice + the iterative
-   tree merge (new code). This decides whether the paper is a tie-study or stronger.
+1. **Run the data tier — `whc_gram` (HTCL-data) is now CODED, see TIER2_RUNBOOK
+   Step 9.** Highest-leverage experiment — the real shot at a "beats the strong
+   baseline" headline. GLUE precedent: whc_tree 0.667 > RegMean 0.609. The port is
+   the N-expert single-pass RegMean + ridge-toward-mean + optional Fisher ridge
+   (`mergebench/llm_merge.py::whc_gram`), the Gram estimator
+   (`scripts/mb_gram_estimate.py`), the merge driver + SLURM
+   (`scripts/mb_merge_whc_gram.{py,sh}`, `mb_gram_tier2.sh`), and the iterative
+   catch-up as a documented loop. Eval reuses the sweep drivers via a manifest.
+   Sequence: estimate Grams (9a) -> merge lam grid (9b) -> gate-eval (9c) ->
+   iterate K>=1 (9d). Unit test: `python tests/test_whc_gram.py` in the merging
+   env (pins the closed form + limits; run it before the HPC batch). This decides
+   whether the paper is a tie-study or stronger.
 2. **Complete the table honestly:** build the safety env (safety-eval-fork + vLLM,
    TIER2_RUNBOOK Step 5), full-eval the best dataless variant `l1e-3_a2`
    (LIMIT=0, n_samples=10, + multilingual on L40S ATTN=sdpa), run safety for the
@@ -97,10 +104,10 @@ the conversation: target TMLR/CoLLAs/workshop, not a dataless-SOTA claim.
   on system Python 2; re-activate.
 
 ## PARKED — pick up later
-- **whc_tree (Gram, iterative / "catch-up")** — the GLUE winner that beat RegMean;
-  the data-using variant for the strong-baseline regime. Port to LLMs (needs
-  RegMean-style activation statistics) is the next phase if the dataless alpha
-  sweep + Fisher do not fully clear the baselines. See [[project_whc_variants_roadmap]].
+- **whc_tree (Gram, iterative / "catch-up")** — PORTED as `whc_gram` (Next-steps
+  #1, TIER2_RUNBOOK Step 9). The single-pass merge + Gram estimator + iterative
+  loop are coded and unit-tested; what remains is the HPC run and, if it clears
+  the baselines, folding the result into the table. See [[project_whc_variants_roadmap]].
 - **Data Fisher sweep** — `scripts/mb_fisher_tier2.sh` then
   `FISHER_ROOT=... sbatch scripts/mb_sweep_merge.sh` (verify the `<domain>_val`
   dataset ids on HF first).

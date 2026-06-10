@@ -262,3 +262,51 @@ domain-adaptive scale (per-expert or per-parameter $\alpha$ in place of one glob
 scale) is an open lead suggested directly by the coding/instruction tension. Safety
 (untested) is the one domain where the tie could become a loss, since larger
 $\alpha$ is a more aggressive merge.
+
+## 12. Data tier: the `whc_gram` port (HTCL-data vs RegMean)
+
+**The merge.** For each Linear weight $W_i \in \mathbb{R}^{o\times d}$ with input
+Gram $G_i = \tfrac{1}{T}\sum_t x_t x_t^\top \in \mathbb{R}^{d\times d}$ (the
+token-averaged second moment of the layer input, collected on expert $i$'s own
+domain data), the $N$-expert single-pass closed form is
+$$
+W_M \;=\; \Big(\textstyle\sum_i W_i G_i + \lambda \bar W\Big)
+          \Big(\textstyle\sum_i G_i + \lambda I + \gamma\,\mathrm{diag}(\bar F_{\text{in}})\Big)^{-1},
+$$
+with $\bar W = \tfrac1N\sum_i W_i$ and $\bar F_{\text{in}}$ the input-dim projection
+of the diagonal Fisher (average the $[o,d]$ diagonal over the output axis, $\to[d]$).
+This is the $N$-way generalization of the GLUE `whc_tree` pairwise node (§4), lifted
+from the binary tree to one solve per layer for the billion-param regime.
+
+**Limits (the identity of the method).** As $\lambda\to0$ this is exactly RegMean,
+$W_M=(\sum_i W_iG_i)(\sum_i G_i)^{-1}$ (Jin et al. 2023). As $\lambda\to\infty$ it
+collapses to the simple mean $\bar W$. The $\lambda\bar W$ term is the
+ridge-toward-mean anchor that is HTCL's signature (the full-Gram analogue of the
+diagonal $\lambda\bar w$ anchor of §2, Eq. 9); the $\gamma$ term injects curvature
+that pure-Gram RegMean discards. So $\lambda$ is the single knob separating
+HTCL-data from RegMean, and $\lambda=0$ is a built-in RegMean ablation point.
+
+**Why no $\alpha$ here.** The §11 dilution fix does not apply: RegMean-type solves
+are not curvature-weighted *means* of the experts, so there is no $1/N$ shrink to
+undo. The data tier trades the global scale $\alpha$ for the data-driven Gram
+geometry, which is the point.
+
+**Iterative catch-up ($K\ge1$).** Re-collect each domain's Gram *on the merged
+model* (the linearization point moves to the merge, the experts stay fixed), then
+re-solve. This is §7.2 Fix 3 — the part that, on GLUE, pushed `whc_tree_iter` past
+RegMean. At 8B scale it is an orchestration loop (re-estimate Grams on the merged
+checkpoint, re-merge), not new merge math.
+
+**Implementation.** `merge_checkpoints(method="whc_gram", grams_dirs=..., lam=...,
+gamma=..., fisher_dirs=...)` in [`mergebench/llm_merge.py`](mergebench/llm_merge.py);
+Grams by [`scripts/mb_gram_estimate.py`](scripts/mb_gram_estimate.py) (forward hooks
+on the target Linears, $X^\top X$ accumulated on CPU); driver
+[`scripts/mb_merge_whc_gram.py`](scripts/mb_merge_whc_gram.py). Unit test
+[`tests/test_whc_gram.py`](tests/test_whc_gram.py) pins the closed form, the
+RegMean and mean limits, and the no-Gram/non-Linear fallbacks.
+
+**Scale caveat.** Llama-3.1-8B's `mlp.down_proj` has a $14336\times14336$ Gram
+($\sim$3.3 GB fp32 each, $\sim$105 GB across 32 layers per expert). The default
+estimate excludes it (fits 96 GB) for a fast first pass; the faithful all-Linear
+RegMean comparison needs a high-RAM node. Match the included-layer set across
+`whc_gram` and the RegMean baseline or the comparison is apples-to-oranges.
