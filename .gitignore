@@ -31,14 +31,16 @@ env/
 data/
 checkpoints/
 *.pt
-!docs/*.pt                                # allow tiny demo tensors in docs
+# allow tiny demo tensors in docs
+!docs/*.pt
 *.bin
 *.safetensors
 *.ckpt
 
 # ── Run-specific logs and per-run metrics (regenerated each run) ───────
 results/logs/
-results/glue/                             # populated only on GPU runs
+# populated only on GPU runs
+results/glue/
 results/smoke/checkpoints/
 
 # Allow the small smoke-test outputs that document the pipeline works,
@@ -59,10 +61,20 @@ results/logs/
 hf_token.txt
 *.token
 
-# ── MergeBench Tier 0 / Tier 1 outputs (regenerated on HPC) ────────────
-mb_ckpts/                                 # downloaded base + expert checkpoints
-mb_merged/                                # merged HF checkpoints
-mb_fisher/                                # per-expert diagonal Fisher (data tier)
-MergeBench/                               # third-party MergeBench clone (external)
-results/mergebench/                       # divergence + merge summaries
-results/mb_eval/                          # MergeBench eval outputs
+# ── MergeBench Tier 0/1/2 outputs (regenerated on HPC) ─────────────────
+# NOTE: git does NOT strip inline (trailing) comments. A pattern written as
+# "mb_merged/  # note" is taken literally and matches nothing, so keep every
+# comment on its own line.
+mb_ckpts/
+mb_merged/
+mb_fisher/
+# anchored to repo root: matches the top-level clone only, NOT results/mergebench/
+# (macOS is case-insensitive, so an unanchored "MergeBench/" also hits "mergebench")
+/MergeBench/
+results/mb_eval/
+# results/mergebench/ holds the tracked .md result tables AND regenerated
+# artifacts; ignore only the artifacts so the tables stay versioned.
+results/mergebench/*.json
+results/mergebench/*.html
+results/mergebench/*.pdf
+results/mergebench/figures/
