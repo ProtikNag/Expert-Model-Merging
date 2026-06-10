@@ -62,5 +62,7 @@ hf_token.txt
 # ── MergeBench Tier 0 / Tier 1 outputs (regenerated on HPC) ────────────
 mb_ckpts/                                 # downloaded base + expert checkpoints
 mb_merged/                                # merged HF checkpoints
+mb_fisher/                                # per-expert diagonal Fisher (data tier)
+MergeBench/                               # third-party MergeBench clone (external)
 results/mergebench/                       # divergence + merge summaries
 results/mb_eval/                          # MergeBench eval outputs
