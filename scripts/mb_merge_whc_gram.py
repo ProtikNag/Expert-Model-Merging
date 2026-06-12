@@ -60,8 +60,15 @@ def main() -> None:
                     help="Per-domain diagonal Fisher root, for gamma>0 only.")
     ap.add_argument("--domains", default=None,
                     help="Comma-separated; defaults to cfg tier_domains.")
-    ap.add_argument("--lams", default="0,1e-3,1e-2",
+    ap.add_argument("--lams", default="1e-2",
                     help="Comma-separated ridge-toward-mean coefficients.")
+    ap.add_argument("--alphas", default="1",
+                    help="Comma-separated global update-scales (alpha~N undoes "
+                         "the Gram-merge averaging dilution).")
+    ap.add_argument("--fallbacks", default="mean",
+                    help="Comma-separated non-Gram-key rules: mean,task_arith.")
+    ap.add_argument("--scale", type=float, default=0.4,
+                    help="Task-vector scale for the task_arith fallback.")
     ap.add_argument("--gammas", default="0",
                     help="Comma-separated Fisher-ridge coefficients (needs "
                          "--fisher-root when nonzero).")
@@ -89,27 +96,39 @@ def main() -> None:
                 f"scripts/mb_gram_estimate.py for each domain first.")
 
     lams = _parse_floats(args.lams)
+    alphas = _parse_floats(args.alphas)
     gammas = _parse_floats(args.gammas)
+    fallbacks = [s.strip() for s in args.fallbacks.split(",") if s.strip()]
     if any(g != 0 for g in gammas) and fisher_dirs is None:
         raise ValueError("gamma>0 requires --fisher-root.")
+    _fb_tag = {"mean": "m", "task_arith": "ta"}
 
     manifest_path = (Path(args.manifest) if args.manifest
                      else merged_root / "whc_gram_manifest.txt")
-    print(f"[whc-gram] domains={domains} grams={gram_dirs} "
-          f"lams={lams} gammas={gammas} -> manifest {manifest_path}", flush=True)
+    print(f"[whc-gram] domains={domains} grams={gram_dirs} lams={lams} "
+          f"alphas={alphas} fallbacks={fallbacks} gammas={gammas} "
+          f"-> manifest {manifest_path}", flush=True)
 
     lines: List[str] = []
     for lam in lams:
-        for gamma in gammas:
-            tag = f"whc_gram_l{_fmt(lam)}_g{_fmt(gamma)}"
-            save_dir = merged_root / tag
-            print(f"\n[variant {tag}] lam={lam} gamma={gamma}", flush=True)
-            merge_checkpoints(
-                method="whc_gram", base_dir=base_dir, expert_dirs=expert_dirs,
-                save_dir=str(save_dir), lam=lam, gamma=gamma,
-                grams_dirs=gram_dirs,
-                fisher_dirs=(fisher_dirs if gamma != 0 else None))
-            lines.append(f"{tag} {save_dir}")
+        for alpha in alphas:
+            for fb in fallbacks:
+                for gamma in gammas:
+                    # Compact tag: lam, alpha, fallback; gamma only if nonzero.
+                    tag = (f"whc_gram_l{_fmt(lam)}_a{_fmt(alpha)}"
+                           f"_{_fb_tag.get(fb, fb)}")
+                    if gamma != 0:
+                        tag += f"_g{_fmt(gamma)}"
+                    save_dir = merged_root / tag
+                    print(f"\n[variant {tag}] lam={lam} alpha={alpha} "
+                          f"fallback={fb} gamma={gamma}", flush=True)
+                    merge_checkpoints(
+                        method="whc_gram", base_dir=base_dir,
+                        expert_dirs=expert_dirs, save_dir=str(save_dir),
+                        lam=lam, alpha=alpha, gamma=gamma, scale=args.scale,
+                        gram_fallback=fb, grams_dirs=gram_dirs,
+                        fisher_dirs=(fisher_dirs if gamma != 0 else None))
+                    lines.append(f"{tag} {save_dir}")
 
     with open(manifest_path, "w") as f:
         f.write("\n".join(lines) + "\n")

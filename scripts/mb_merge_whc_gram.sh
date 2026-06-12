@@ -35,7 +35,10 @@ REPO="${REPO:-/work/pnag/Expert-Model-Merging}"
 MERGE_ENV="${MERGE_ENV:-/work/pnag/envs/merging}"
 CONFIG="${CONFIG:-configs/mergebench_tier2.yaml}"
 GRAM_ROOT="${GRAM_ROOT:-mb_grams/Llama-3.1-8B}"
-LAMS="${LAMS:-0,1e-3,1e-2}"
+LAMS="${LAMS:-1e-2}"
+ALPHAS="${ALPHAS:-1}"
+FALLBACKS="${FALLBACKS:-mean}"
+SCALE="${SCALE:-0.4}"
 GAMMAS="${GAMMAS:-0}"
 FISHER_ROOT="${FISHER_ROOT:-}"
 
@@ -53,9 +56,10 @@ if [ -n "${FISHER_ROOT}" ]; then
   FISHER_ARG="--fisher-root ${FISHER_ROOT}"
 fi
 
-echo "[whc-gram] config=${CONFIG} gram_root=${GRAM_ROOT} lams=${LAMS} gammas=${GAMMAS}"
+echo "[whc-gram] config=${CONFIG} gram_root=${GRAM_ROOT} lams=${LAMS} alphas=${ALPHAS} fallbacks=${FALLBACKS} gammas=${GAMMAS}"
 python -u scripts/mb_merge_whc_gram.py --config "${CONFIG}" \
-  --gram-root "${GRAM_ROOT}" --lams "${LAMS}" --gammas "${GAMMAS}" ${FISHER_ARG}
+  --gram-root "${GRAM_ROOT}" --lams "${LAMS}" --alphas "${ALPHAS}" \
+  --fallbacks "${FALLBACKS}" --scale "${SCALE}" --gammas "${GAMMAS}" ${FISHER_ARG}
 python    scripts/mb_fix_tokenizers.py --config "${CONFIG}"
 
 echo "[whc-gram] done"

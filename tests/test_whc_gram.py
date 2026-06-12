@@ -138,31 +138,62 @@ def test_identity_gram_lam0_is_mean():
         assert torch.allclose(got, mean, atol=1e-4), (got - mean).abs().max()
 
 
+def _ab_merge(tmp: Path, **kwargs):
+    """Two experts, key 'a.weight' has a Gram, key 'b.weight' does not.
+    Returns (merged_reader, [(a,b) per expert], base)."""
+    torch.manual_seed(2)
+    out_dim, in_dim, n = 2, 3, 2
+    we, expert_dirs, gram_dirs = [], [], []
+    for i in range(n):
+        w = torch.randn(out_dim, in_dim)
+        w2 = torch.randn(out_dim, in_dim)                  # second Linear, NO gram
+        we.append((w, w2))
+        _write_ckpt(tmp / f"exp{i}", {"a.weight": w, "b.weight": w2})
+        expert_dirs.append(str(tmp / f"exp{i}"))
+        _write_ckpt(tmp / f"gram{i}", {"a.weight": _spd(in_dim, 5 + i)})
+        gram_dirs.append(str(tmp / f"gram{i}"))
+    base = {"a.weight": torch.zeros(out_dim, in_dim),
+            "b.weight": torch.zeros(out_dim, in_dim)}
+    base_dir = _write_ckpt(tmp / "base", base)
+    save_dir = str(tmp / "merged")
+    merge_checkpoints(method="whc_gram", base_dir=base_dir,
+                      expert_dirs=expert_dirs, save_dir=save_dir,
+                      grams_dirs=gram_dirs, **kwargs)
+    return ShardedStateReader(save_dir), we
+
+
 def test_missing_gram_falls_back_to_mean():
     """A Linear key absent from the Gram dir is averaged, not solved."""
     with tempfile.TemporaryDirectory() as td:
-        tmp = Path(td)
-        torch.manual_seed(2)
-        out_dim, in_dim, n = 2, 3, 2
-        w_experts, expert_dirs, gram_dirs = [], [], []
-        for i in range(n):
-            w = torch.randn(out_dim, in_dim)
-            w2 = torch.randn(out_dim, in_dim)              # second Linear, NO gram
-            w_experts.append((w, w2))
-            _write_ckpt(tmp / f"exp{i}", {"a.weight": w, "b.weight": w2})
-            expert_dirs.append(str(tmp / f"exp{i}"))
-            _write_ckpt(tmp / f"gram{i}", {"a.weight": _spd(in_dim, 5 + i)})
-            gram_dirs.append(str(tmp / f"gram{i}"))
-        base_dir = _write_ckpt(tmp / "base",
-                               {"a.weight": torch.zeros(out_dim, in_dim),
-                                "b.weight": torch.zeros(out_dim, in_dim)})
-        save_dir = str(tmp / "merged")
-        merge_checkpoints(method="whc_gram", base_dir=base_dir,
-                          expert_dirs=expert_dirs, save_dir=save_dir,
-                          lam=1e-3, grams_dirs=gram_dirs)
-        got_b = ShardedStateReader(save_dir).get("b.weight").float()
-        mean_b = sum(w2 for _, w2 in w_experts) / n
+        out, we = _ab_merge(Path(td), lam=1e-3)            # default fallback=mean
+        got_b = out.get("b.weight").float()
+        mean_b = sum(b for _, b in we) / len(we)
         assert torch.allclose(got_b, mean_b, atol=1e-5), (got_b - mean_b).abs().max()
+
+
+def test_task_arith_fallback():
+    """gram_fallback='task_arith' makes non-Gram keys w_pre + scale*sum(tv).
+    Base is 0, so out_b = scale * sum_i b_i."""
+    with tempfile.TemporaryDirectory() as td:
+        out, we = _ab_merge(Path(td), lam=1e-3,
+                            gram_fallback="task_arith", scale=0.4)
+        got_b = out.get("b.weight").float()
+        ref_b = 0.4 * sum(b for _, b in we)                # w_pre=0
+        assert torch.allclose(got_b, ref_b, atol=1e-5), (got_b - ref_b).abs().max()
+
+
+def test_alpha_scales_all_keys():
+    """alpha rescales the deviation from base for BOTH the solved key and the
+    fallback key: out = w_pre + alpha*(out_base - w_pre), w_pre=0 here."""
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        out1, _ = _ab_merge(tmp / "a1", lam=1e-2, alpha=1.0)
+        out3, _ = _ab_merge(tmp / "a3", lam=1e-2, alpha=3.0)
+        for k in ("a.weight", "b.weight"):
+            base_dev = out1.get(k).float()                 # w_pre=0 -> dev == value
+            scaled = out3.get(k).float()
+            assert torch.allclose(scaled, 3.0 * base_dev, atol=1e-4), \
+                (k, (scaled - 3.0 * base_dev).abs().max())
 
 
 if __name__ == "__main__":
@@ -171,4 +202,6 @@ if __name__ == "__main__":
     test_large_lam_tends_to_mean()
     test_identity_gram_lam0_is_mean()
     test_missing_gram_falls_back_to_mean()
+    test_task_arith_fallback()
+    test_alpha_scales_all_keys()
     print("all whc_gram tests passed")

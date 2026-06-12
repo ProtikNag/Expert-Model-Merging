@@ -84,6 +84,7 @@ def merge_checkpoints(method: str,
                       alpha: float = 1.0,
                       gamma: float = 0.0,
                       curvature: str = "taskvec",
+                      gram_fallback: str = "mean",
                       fisher_dirs: Optional[List[str]] = None,
                       grams_dirs: Optional[List[str]] = None,
                       log_every: int = 50) -> Dict[str, float]:
@@ -109,8 +110,15 @@ def merge_checkpoints(method: str,
         Fisher-anchored ridge weight for ``whc_gram`` only. When ``gamma>0`` and
         ``fisher_dirs`` is supplied, adds ``gamma * diag(F_in)`` to the
         ``[in, in]`` ridge, injecting curvature that pure-Gram RegMean discards.
+    gram_fallback:
+        For ``whc_gram`` only, how to merge the non-Gram keys (norms,
+        embeddings, lm_head, and any Linear lacking a Gram such as the excluded
+        ``down_proj``). ``"mean"`` (default) is the ensemble mean; ``"task_arith"``
+        is the scaled task-vector sum ``w_pre + scale * sum_i (w_i - w_pre)``,
+        which undoes the mean's ~1/N dilution on those keys.
     alpha:
-        Task-vector scale for ``whc_diag`` only. The closed form returns a
+        Task-vector scale for ``whc_diag`` and ``whc_gram``. The closed form
+        returns a
         curvature-weighted *mean* of the experts, which dilutes each expert's
         update by ~1/N relative to a *sum* of task vectors (task arithmetic).
         ``alpha`` rescales the net deviation from base, ``w_M = w_pre + alpha *
@@ -225,14 +233,28 @@ def merge_checkpoints(method: str,
                 # optional Fisher ridge). Only 2D Linear weights that every
                 # expert has a Gram for go through the [in, in] solve; all other
                 # float params (norms, biases, embeddings, lm_head, and any key
-                # without a Gram) fall back to the ensemble mean.
+                # without a Gram) take the ``gram_fallback`` rule.
+                #
+                # Both the Gram solve AND the mean fallback are weighted AVERAGES
+                # of the experts, so whc_gram inherits the same ~1/N update
+                # dilution analysed for whc_diag (NOTES Sec 11). Two knobs undo
+                # it: ``gram_fallback="task_arith"`` makes the non-Gram keys a
+                # scaled task-vector SUM instead of a mean, and ``alpha`` rescales
+                # the final deviation from base uniformly (alpha~N), exactly the
+                # whc_diag fix lifted to the data tier.
                 have_gram = (w_pre.dim() == 2
                              and all(g.has(key) for g in grams))
                 if not have_gram:
-                    acc = torch.zeros_like(w_pre)
-                    for w in w_experts:
-                        acc += w
-                    out = acc / n
+                    if gram_fallback == "task_arith":
+                        tv_sum = torch.zeros_like(w_pre)
+                        for w in w_experts:
+                            tv_sum += (w - w_pre)
+                        out = w_pre + scale * tv_sum
+                    else:  # "mean"
+                        acc = torch.zeros_like(w_pre)
+                        for w in w_experts:
+                            acc += w
+                        out = acc / n
                 else:
                     in_dim = w_pre.shape[1]
                     g_list = [g.get(key).float() for g in grams]
@@ -255,6 +277,9 @@ def merge_checkpoints(method: str,
                         lhs += gamma * torch.diag(f_in)
                     # lhs is symmetric PSD; solve lhs X^T = rhs^T, transpose back.
                     out = torch.linalg.solve(lhs, rhs.t()).t()
+                # Global update-scale (applies to solved AND fallback keys).
+                if alpha != 1.0:
+                    out = w_pre + alpha * (out - w_pre)
 
             else:
                 raise ValueError(f"Unknown merge method: {method}")
