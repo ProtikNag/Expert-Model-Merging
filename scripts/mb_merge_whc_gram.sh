@@ -55,11 +55,18 @@ FISHER_ARG=""
 if [ -n "${FISHER_ROOT}" ]; then
   FISHER_ARG="--fisher-root ${FISHER_ROOT}"
 fi
+# MANIFEST lets a catch-up / side run write its own manifest instead of
+# overwriting the main one (default mb_merged/<base>/whc_gram_manifest.txt).
+MANIFEST_ARG=""
+if [ -n "${MANIFEST}" ]; then
+  MANIFEST_ARG="--manifest ${MANIFEST}"
+fi
 
 echo "[whc-gram] config=${CONFIG} gram_root=${GRAM_ROOT} lams=${LAMS} alphas=${ALPHAS} fallbacks=${FALLBACKS} gammas=${GAMMAS}"
 python -u scripts/mb_merge_whc_gram.py --config "${CONFIG}" \
   --gram-root "${GRAM_ROOT}" --lams "${LAMS}" --alphas "${ALPHAS}" \
-  --fallbacks "${FALLBACKS}" --scale "${SCALE}" --gammas "${GAMMAS}" ${FISHER_ARG}
+  --fallbacks "${FALLBACKS}" --scale "${SCALE}" --gammas "${GAMMAS}" \
+  ${MANIFEST_ARG} ${FISHER_ARG}
 python    scripts/mb_fix_tokenizers.py --config "${CONFIG}"
 
 echo "[whc-gram] done"
