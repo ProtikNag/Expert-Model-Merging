@@ -75,6 +75,11 @@ def main() -> None:
     ap.add_argument("--manifest", default=None,
                     help="Where to append the variant manifest "
                          "(default mb_merged/<base>/whc_gram_manifest.txt).")
+    ap.add_argument("--tag", default=None,
+                    help="Explicit output dir name for a SINGLE-variant run "
+                         "(e.g. whc_gram_k1 for a catch-up round). Errors if the "
+                         "grid has more than one point. Avoids the auto-tag "
+                         "colliding with an earlier round's dir.")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
@@ -102,6 +107,10 @@ def main() -> None:
     if any(g != 0 for g in gammas) and fisher_dirs is None:
         raise ValueError("gamma>0 requires --fisher-root.")
     _fb_tag = {"mean": "m", "task_arith": "ta"}
+    n_variants = len(lams) * len(alphas) * len(fallbacks) * len(gammas)
+    if args.tag and n_variants != 1:
+        raise ValueError(f"--tag is only for a single-variant run, but the grid "
+                         f"has {n_variants} points.")
 
     manifest_path = (Path(args.manifest) if args.manifest
                      else merged_root / "whc_gram_manifest.txt")
@@ -114,11 +123,14 @@ def main() -> None:
         for alpha in alphas:
             for fb in fallbacks:
                 for gamma in gammas:
-                    # Compact tag: lam, alpha, fallback; gamma only if nonzero.
-                    tag = (f"whc_gram_l{_fmt(lam)}_a{_fmt(alpha)}"
-                           f"_{_fb_tag.get(fb, fb)}")
-                    if gamma != 0:
-                        tag += f"_g{_fmt(gamma)}"
+                    if args.tag:
+                        tag = args.tag
+                    else:
+                        # Compact tag: lam, alpha, fallback; gamma only if nonzero.
+                        tag = (f"whc_gram_l{_fmt(lam)}_a{_fmt(alpha)}"
+                               f"_{_fb_tag.get(fb, fb)}")
+                        if gamma != 0:
+                            tag += f"_g{_fmt(gamma)}"
                     save_dir = merged_root / tag
                     print(f"\n[variant {tag}] lam={lam} alpha={alpha} "
                           f"fallback={fb} gamma={gamma}", flush=True)

@@ -61,12 +61,18 @@ MANIFEST_ARG=""
 if [ -n "${MANIFEST}" ]; then
   MANIFEST_ARG="--manifest ${MANIFEST}"
 fi
+# TAG names a single-variant output dir explicitly (e.g. whc_gram_k1 for a
+# catch-up round) so it does not collide with an earlier round's auto-named dir.
+TAG_ARG=""
+if [ -n "${TAG}" ]; then
+  TAG_ARG="--tag ${TAG}"
+fi
 
 echo "[whc-gram] config=${CONFIG} gram_root=${GRAM_ROOT} lams=${LAMS} alphas=${ALPHAS} fallbacks=${FALLBACKS} gammas=${GAMMAS}"
 python -u scripts/mb_merge_whc_gram.py --config "${CONFIG}" \
   --gram-root "${GRAM_ROOT}" --lams "${LAMS}" --alphas "${ALPHAS}" \
   --fallbacks "${FALLBACKS}" --scale "${SCALE}" --gammas "${GAMMAS}" \
-  ${MANIFEST_ARG} ${FISHER_ARG}
+  ${MANIFEST_ARG} ${TAG_ARG} ${FISHER_ARG}
 python    scripts/mb_fix_tokenizers.py --config "${CONFIG}"
 
 echo "[whc-gram] done"
