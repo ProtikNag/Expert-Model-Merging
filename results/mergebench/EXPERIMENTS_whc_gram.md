@@ -83,18 +83,56 @@ Then T1 gate per the protocol above (6 variants -> `--array=0-5%6`).
 
 | variant | lam | alpha | fallback | math | instr | heval+ | mbpp+ | GATE | tier |
 |---|---|---|---|---|---|---|---|---|---|
-| whc_gram_l0.01_a1_m | 1e-2 | 1 | mean | | | | | | — |
-| whc_gram_l0.01_a2_m | 1e-2 | 2 | mean | | | | | | — |
-| whc_gram_l0.01_a3_m | 1e-2 | 3 | mean | | | | | | — |
-| whc_gram_l0.01_a1_ta | 1e-2 | 1 | task_arith | | | | | | — |
-| whc_gram_l0.01_a2_ta | 1e-2 | 2 | task_arith | | | | | | — |
-| whc_gram_l0.01_a3_ta | 1e-2 | 3 | task_arith | | | | | | — |
+| whc_gram_l0.01_a1_m (control) | 1e-2 | 1 | mean | 75.0 | 19.0 | 44.6 | 56.0 | 48.7 | T1 |
+| **whc_gram_l0.01_a1_ta** | 1e-2 | 1 | task_arith | 76.2 | 23.0 | 43.2 | 54.0 | **49.1** | T1 |
+| whc_gram_l0.01_a2_m | 1e-2 | 2 | mean | 40.4 | 33.4 | 39.9 | 48.0 | 40.4 | T1 |
+| whc_gram_l0.01_a2_ta | 1e-2 | 2 | task_arith | 48.2 | 29.0 | 37.1 | 40.8 | 38.8 | T1 |
+| whc_gram_l0.01_a3_m | 1e-2 | 3 | mean | 8.8 | 25.0 | 11.5 | 16.3 | 15.4 | T1 |
+| whc_gram_l0.01_a3_ta | 1e-2 | 3 | task_arith | abandoned (alpha=3 catastrophic) | | | | | — |
 
-**Decision criteria.** If any variant's instr recovers toward ~25 and GATE clears
-~51 -> dilution hypothesis confirmed, proceed to Round 2 (iterative K>=1) and lam
-re-tune at the winning (alpha,fallback). If alpha helps instr but kills coding
-(the whc_diag trade-off reappears), that is the structural ceiling and the data
-tier likely caps at a tie -> consider folding. Record the trade-off either way.
+**Verdict.** Control reproduces round 0 (48.7) -> code path sound.
+- **task_arith fallback: confirmed, mild.** a1_ta lifts instr 19->23 and math
+  75->76 (the diluted non-Gram keys), +0.4 gate. Keep it.
+- **alpha: REFUTED, catastrophic.** alpha=2 craters math 75->40; alpha=3 collapses
+  everything (math 8.8). Opposite of whc_diag. Reason: whc_diag is a per-coordinate
+  MEAN (bounded inside the experts' values) so scaling its deviation extrapolates
+  gently; the Gram least-squares solve ALREADY extrapolates beyond the experts (not
+  a convex combination), so alpha amplifies that into out-of-distribution garbage.
+  The diagonal-method dilution fix does NOT transfer to the full-covariance method.
+  Drop alpha from the data-tier search (keep alpha=1).
+- Best data config so far: **a1_ta = 49.1**, still 2.7 below Consensus 51.8. The
+  residual gap is spread across math/instr/heval (heval -4.7 the largest), i.e. the
+  Gram (averaging) solve is structurally weaker than additive task-arith on these
+  tasks. The remaining real lever is improving the SOLVE quality, not rescaling it.
+
+### Round 2 — iterative catch-up K>=1 (PENDING)
+
+Re-linearize the Gram at the merged weights (the GLUE differentiator; it improves
+the solve without rescaling, so it sidesteps the alpha failure). Base config =
+Round-1 winner `whc_gram_l0.01_a1_ta` (lam=1e-2, task_arith fallback, alpha=1).
+
+K=1 procedure (reuses mb_gram_estimate.py with --expert pointed at the merged
+model; mb_gram_tier2.sh now takes LINEARIZE_AT + OUT_ROOT):
+```sh
+# 1. re-estimate each domain's Gram ON the round-1 winner
+LINEARIZE_AT=mb_merged/Llama-3.1-8B/whc_gram_l0.01_a1_ta \
+  OUT_ROOT=mb_grams/Llama-3.1-8B_k1 sbatch scripts/mb_gram_tier2.sh
+# 2. re-merge the ORIGINAL experts with the refreshed Grams
+GRAM_ROOT=mb_grams/Llama-3.1-8B_k1 LAMS=1e-2 ALPHAS=1 FALLBACKS=task_arith \
+  MANIFEST=mb_merged/Llama-3.1-8B/whc_gram_k1_manifest.txt \
+  sbatch scripts/mb_merge_whc_gram.sh
+# 3. T1 gate (1 variant); repeat K=2 from the K=1 model if it improves
+```
+
+| variant | round | math | instr | heval+ | mbpp+ | GATE | tier |
+|---|---|---|---|---|---|---|---|
+| whc_gram_l0.01_a1_ta | K=0 | 76.2 | 23.0 | 43.2 | 54.0 | 49.1 | T1 |
+| whc_gram_k1 | K=1 | | | | | | — |
+
+**Decision.** If K=1 lifts gate meaningfully (>50.5) and K=2 keeps rising, the
+iterative data merge is the contribution -> full-scale confirm + add down_proj. If
+K=1 is flat (<+0.5), the single-pass Gram ceiling holds and the data tier caps at
+~49 (a loss) -> fold to the analysis framing. Either outcome is a clean result.
 
 ## Backlog (ideas to integrate if Round 1 is promising)
 

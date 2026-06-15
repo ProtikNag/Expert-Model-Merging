@@ -310,3 +310,27 @@ RegMean and mean limits, and the no-Gram/non-Linear fallbacks.
 estimate excludes it (fits 96 GB) for a fast first pass; the faithful all-Linear
 RegMean comparison needs a high-RAM node. Match the included-layer set across
 `whc_gram` and the RegMean baseline or the comparison is apples-to-oranges.
+
+**Empirical results (Tier 2, T1 gate; ledger
+[`EXPERIMENTS_whc_gram.md`](results/mergebench/EXPERIMENTS_whc_gram.md)).**
+Single-pass `whc_gram` loses: best gate 48.7 vs Consensus 51.8, below even the
+tuned dataless HTCL (51.3). $\lambda=0$ (plain RegMean) is numerically degenerate
+at 8B (the summed activation Gram is near low-rank, so the unregularised solve
+explodes); the ridge-toward-mean is what makes Gram-merging *usable* here, a point
+for the method even though the gate still trails. `whc_gram` wins only `mbpp+`
+(table-best) and loses math/instr/heval+, i.e. the averaging solve is structurally
+weaker than additive task arithmetic on those domains.
+
+**The $\alpha$ asymmetry (diagonal vs full covariance).** The update-scale $\alpha$
+that rescues `whc_diag` (instr $15\to31$) is *catastrophic* for `whc_gram`:
+$\alpha=2$ craters math $75\to40$, $\alpha=3$ collapses the model (math $8.8$). The
+reason is a real structural difference. `whc_diag` returns a per-coordinate convex
+*mean* of the experts' weights, bounded inside their hull, so scaling the deviation
+from base extrapolates gently. The full-Gram least-squares solve
+$(\sum W_iG_i)(\sum G_i)^{-1}$ is **not** a convex combination — it already
+extrapolates beyond the experts — so multiplying that deviation by $\alpha$ throws
+the weights out of distribution into garbage. Implication: the dilution fix is
+diagonal-specific; for the data tier the lever is improving the *solve* (iterative
+re-linearisation, the GLUE `whc_tree_iter` edge), not rescaling it. The
+`task_arith` fallback on the non-Gram keys is the one transferable piece (+0.4 gate,
+instr $19\to23$), since those keys really were a diluted mean.

@@ -68,9 +68,19 @@ ROW=$(echo "$ROWS" | grep -v '^$' | sed -n "$((SLURM_ARRAY_TASK_ID + 1))p")
 DOMAIN=$(echo "$ROW" | awk '{print $1}')
 DATASET=$(echo "$ROW" | awk '{print $2}')
 
-EXPERT="mb_ckpts/MergeBench__${BASE_NAME}_${DOMAIN}"
+# Round 0: hook each domain's own expert. Iterative catch-up (K>=1): set
+# LINEARIZE_AT to the round-(k-1) merged checkpoint to hook IT on every domain's
+# data instead (the linearization point moves to the merge; the experts stay
+# fixed). OUT_ROOT redirects the output (e.g. mb_grams/<base>_k1).
+LINEARIZE_AT="${LINEARIZE_AT:-}"
+OUT_ROOT="${OUT_ROOT:-mb_grams/${BASE_NAME}}"
+if [ -n "${LINEARIZE_AT}" ]; then
+  EXPERT="${LINEARIZE_AT}"
+else
+  EXPERT="mb_ckpts/MergeBench__${BASE_NAME}_${DOMAIN}"
+fi
 TOKENIZER="mb_ckpts/${BASE_REPO_DIR}"
-OUT="mb_grams/${BASE_NAME}/${DOMAIN}"
+OUT="${OUT_ROOT}/${DOMAIN}"
 
 echo "[gram] domain=${DOMAIN} expert=${EXPERT} dataset=${DATASET} n=${N_SAMPLES} exclude='${EXCLUDE}'"
 python -u scripts/mb_gram_estimate.py \
