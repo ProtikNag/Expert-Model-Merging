@@ -127,12 +127,42 @@ GRAM_ROOT=mb_grams/Llama-3.1-8B_k1 LAMS=1e-2 ALPHAS=1 FALLBACKS=task_arith \
 | variant | round | math | instr | heval+ | mbpp+ | GATE | tier |
 |---|---|---|---|---|---|---|---|
 | whc_gram_l0.01_a1_ta | K=0 | 76.2 | 23.0 | 43.2 | 54.0 | 49.1 | T1 |
-| whc_gram_k1 | K=1 | | | | | | — |
+| whc_gram_k1 | K=1 | 75.2 | 21.8 | 43.4 | 53.6 | **48.5** | T1 |
 
-**Decision.** If K=1 lifts gate meaningfully (>50.5) and K=2 keeps rising, the
-iterative data merge is the contribution -> full-scale confirm + add down_proj. If
-K=1 is flat (<+0.5), the single-pass Gram ceiling holds and the data tier caps at
-~49 (a loss) -> fold to the analysis framing. Either outcome is a clean result.
+**Verdict: FLAT (slightly worse). Iterative catch-up does NOT transfer.** K=1 is
+48.5 vs K=0 49.1 (instr 23->21.8, math 76->75, mbpp 54->53.6, heval flat) -- a -0.6
+move, no recovery. Re-linearising the Gram at the merged point, the exact lever
+that beat RegMean on GLUE (whc_tree_iter 0.667 > 0.609), buys nothing at 8B / N=5.
+This is itself a reportable result: the GLUE-scale iterative data merge does not
+scale to billion-parameter LLMs. Per the pre-registered rule, do NOT run K=2.
+
+## Campaign verdict (data tier)
+
+Three rounds, two main levers tested and both failed:
+- **Round 0** single-pass: 48.7, loses (lam=0 degenerate; ridge needed).
+- **Round 1** alpha: REFUTED (catastrophic, extrapolation); task_arith fallback:
+  mild +0.4 -> 49.1 (the data-tier best).
+- **Round 2** iterative K=1: FLAT (48.5), doesn't transfer.
+
+**The data tier (whc_gram) caps at ~49**, below the dataless tie (51.3) and the
+dataless baselines (51.8). The residual gap is structural -- the Gram (averaging)
+solve is weaker than additive task arithmetic on math/instr/heval, and neither
+rescaling (alpha) nor re-linearising (K) closes it. Spending data to measure each
+expert's activation geometry does not beat the dataless method at this scale.
+
+**Remaining backlog levers are low-upside** (best case a tie, not a win):
+all-Linear Grams (down_proj coverage; targets the heval -6 deficit, ~+1-1.5 gate
+at most), RegMean off-diagonal reduction, per-expert Gram normalisation. None
+changes the average-vs-sum structure that costs math/instr.
+
+**Recommendation: fold to the analysis framing.** The contribution is the unified
+curvature-anchored merging objective (dataless whc_diag <-> data whc_gram), the
+N-scaling dilution analysis + the alpha fix (diagonal), and three clean structural
+findings: (1) plain RegMean is numerically degenerate at 8B, the ridge-toward-mean
+makes Gram-merging usable; (2) the alpha update-scale that rescues diagonal merging
+is catastrophic for full-covariance merging (the solve extrapolates); (3) the
+GLUE-winning iterative catch-up does not transfer to LLM scale. HTCL ties the
+dataless tier; the data tier is an honest negative. Target TMLR / workshop.
 
 ## Backlog (ideas to integrate if Round 1 is promising)
 
