@@ -26,11 +26,14 @@ Operational guide: [`TIER2_RUNBOOK.md`](TIER2_RUNBOOK.md). Active branch:
   [`results/mergebench/TIER1_TABLE.md`](results/mergebench/TIER1_TABLE.md).
 - **Tier 2 — IN PROGRESS** (Llama-3.1-8B, all five domains, N=5). The plain
   closed form underperformed at N=5 because it returns a curvature-weighted *mean*
-  of the experts, diluting each update by ~1/N versus task arithmetic's *sum*. The
-  fix is an **update scale** `alpha` (`w_M = w_pre + alpha*(w_M^HTCL - w_pre)`,
-  `alpha ~ N`); a (lam, alpha) sweep shows `alpha=2-3` recovers HTCL on the
-  math+instruction+coding gate. A five-domain win (incl. safety) is not yet
-  established. Derivation: [`NOTES.md`](NOTES.md) §11. Status & next steps:
+  of the experts, diluting each update by ~1/N versus task arithmetic's *sum*. A
+  single global **update scale** `alpha` recovers math/instruction but trades away
+  coding (instruction wants high `alpha`, coding low), capping HTCL at a tie (51.3)
+  with the dataless baselines (Consensus 51.8). The current win attempt replaces
+  the global scalar with **per-parameter scaling** derived from inter-expert
+  agreement (`pscale=consensus|coherence`), which targets that tension directly;
+  Round 0 (T1 gate) is running. Derivation: [`NOTES.md`](NOTES.md) §11; campaign
+  ledger: [`results/mergebench/EXPERIMENTS_pscale.md`]; status & resume pointer:
   [`HANDOFF.md`](HANDOFF.md).
 
 The MergeBench code is independent of the GLUE pipeline below: merging in

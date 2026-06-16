@@ -61,10 +61,16 @@ python scripts/mb_sweep_table.py --config configs/mergebench_tier2.yaml --manife
 
 Gate columns: math gsm8k_cot / instr ifeval / heval+ / mbpp+ (%). T1.
 
-### Round 0 — consensus vs coherence at lam=1e-3 (RUNNING)
+### Round 0 — consensus vs coherence at lam=1e-3 (eval RUNNING)
 
 Grid: consensus alpha_max ∈ {3,5,8}; coherence alpha_max=5, beta ∈ {1,2}.
-Jobs: merge 21583069 (BigMem) → eval 21583071 (lm, v100) + 21583072 (code, L40S).
+Merge DONE: job 21583244 on BigMem node464, ~27 min, **single-pass** (reads the 6
+models once for all 5 variants via `merge_whc_diag_pscale_multi`; the original
+per-variant merge was 5× GPFS-I/O-redundant and got killed — jobs 21583069 /
+21583094 are dead, ignore). Manifest `mb_merged/Llama-3.1-8B/pscale_manifest.txt`.
+Eval RUNNING: lm 21583200 (v100, gsm8k_cot+ifeval LIMIT=500), code 21583201
+(L40S, humanevalplus+mbppplus n_samples=5). Verdict via `mb_sweep_table.py
+--manifest ...` (see commands above).
 
 | variant | mode | alpha_max | beta | math | instr | heval+ | mbpp+ | GATE | tier |
 |---|---|---|---|---|---|---|---|---|---|
