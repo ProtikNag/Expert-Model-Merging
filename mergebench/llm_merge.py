@@ -82,6 +82,9 @@ def merge_checkpoints(method: str,
                       scale: float = 0.4,
                       lam: float = 1e-4,
                       alpha: float = 1.0,
+                      pscale: str = "global",
+                      alpha_max: float = 1.0,
+                      beta: float = 1.0,
                       gamma: float = 0.0,
                       curvature: str = "taskvec",
                       gram_fallback: str = "mean",
@@ -124,7 +127,33 @@ def merge_checkpoints(method: str,
         ``alpha`` rescales the net deviation from base, ``w_M = w_pre + alpha *
         (w_M^HTCL - w_pre)``, so ``alpha=1`` is the plain closed form and
         ``alpha>1`` compensates the averaging dilution (try ``alpha ~ N``). This
-        is the analogue of task arithmetic's scaling coefficient.
+        is the analogue of task arithmetic's scaling coefficient. Used only when
+        ``pscale="global"`` (the default).
+    pscale:
+        Per-parameter update-scale mode for ``whc_diag`` only. A single global
+        ``alpha`` cannot serve all domains at once (instruction wants a large
+        scale, coding a small one), which caps the merge at the dataless tie.
+        Instead of one scalar, scale each parameter's update ``u_p = w_M^HTCL_p
+        - w_pre_p`` by a per-parameter factor ``a_p`` derived from the experts'
+        task vectors ``tau_i = w_i - w_pre``:
+
+        - ``"global"`` (default): ``a_p = alpha`` everywhere (backward compatible).
+        - ``"coherence"``: ``a_p = 1 + (alpha_max - 1) * coherence_p ** beta``,
+          where ``coherence_p = |sum_i tau_i,p| / (sum_i |tau_i,p| + eps)`` in
+          [0, 1]. Params where the experts agree are boosted toward ``alpha_max``;
+          conflicted params stay near 1. (The AAAI-plan mechanism.)
+        - ``"consensus"``: ``a_p = clip(|c_p| / (|u_p| + eps), 1, alpha_max)``,
+          where ``c_p = sum_{i: sign(tau_i,p)==sign(u_p)} tau_i,p`` is the summed
+          task vector of the experts that agree with the merged update's
+          direction. This rescales the curvature-weighted *mean* up to the
+          additive *sum* of the agreeing experts, directly undoing the ~1/N
+          dilution where it occurs while leaving single-expert params at a_p~=1
+          (no over-extrapolation) and bounding conflicted params (tiny u_p, cap).
+    alpha_max:
+        Upper bound on the per-parameter scale when ``pscale != "global"``.
+    beta:
+        Coherence exponent when ``pscale="coherence"`` (sharpens/softens the
+        boost as a function of inter-expert agreement).
     curvature:
         ``"taskvec"`` (dataless squared task vector) or ``"fisher"``
         (``whc_diag`` only).
@@ -203,11 +232,36 @@ def merge_checkpoints(method: str,
                     num += f_i * w_i
                     den += f_i
                 out = num / (den + _EPS)
-                # Rescale the net update away from base. alpha=1 is the plain
-                # closed form; alpha>1 undoes the ~1/N averaging dilution so the
-                # merged model applies more of each expert's task vector.
-                if alpha != 1.0:
-                    out = w_pre + alpha * (out - w_pre)
+                # Rescale the net update away from base. A single global alpha
+                # (pscale="global") cannot serve all domains; the per-parameter
+                # modes derive the scale from inter-expert agreement so coherent
+                # updates recover the additive sum while single-expert and
+                # conflicted params are left ~unscaled. See the docstring.
+                if pscale == "global":
+                    if alpha != 1.0:
+                        out = w_pre + alpha * (out - w_pre)
+                else:
+                    u = out - w_pre
+                    tvs = [w - w_pre for w in w_experts]
+                    if pscale == "coherence":
+                        sum_tv = torch.zeros_like(w_pre)
+                        sum_abs = torch.zeros_like(w_pre)
+                        for tv in tvs:
+                            sum_tv += tv
+                            sum_abs += tv.abs()
+                        coh = sum_tv.abs() / (sum_abs + _EPS)
+                        a_p = 1.0 + (alpha_max - 1.0) * coh.pow(beta)
+                    elif pscale == "consensus":
+                        s = torch.sign(u)
+                        cons = torch.zeros_like(w_pre)
+                        for tv in tvs:
+                            cons += torch.where(torch.sign(tv) == s, tv,
+                                                torch.zeros_like(tv))
+                        ratio = cons.abs() / (u.abs() + _EPS)
+                        a_p = ratio.clamp(min=1.0, max=alpha_max)
+                    else:
+                        raise ValueError(f"Unknown pscale mode: {pscale}")
+                    out = w_pre + a_p * u
 
             elif method == "fisher_merge":
                 # Plain Fisher-weighted average (Matena & Raffel 2022), NO
