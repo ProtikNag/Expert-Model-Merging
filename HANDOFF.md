@@ -56,18 +56,18 @@ leverage for a stronger result is NOT the dataless sweep. See the strategy notes
 the conversation: target TMLR/CoLLAs/workshop, not a dataless-SOTA claim.
 
 ## Next steps (in order)
-1. **Run the data tier — `whc_gram` (HTCL-data) is now CODED, see TIER2_RUNBOOK
-   Step 9.** Highest-leverage experiment — the real shot at a "beats the strong
-   baseline" headline. GLUE precedent: whc_tree 0.667 > RegMean 0.609. The port is
-   the N-expert single-pass RegMean + ridge-toward-mean + optional Fisher ridge
-   (`mergebench/llm_merge.py::whc_gram`), the Gram estimator
-   (`scripts/mb_gram_estimate.py`), the merge driver + SLURM
-   (`scripts/mb_merge_whc_gram.{py,sh}`, `mb_gram_tier2.sh`), and the iterative
-   catch-up as a documented loop. Eval reuses the sweep drivers via a manifest.
-   Sequence: estimate Grams (9a) -> merge lam grid (9b) -> gate-eval (9c) ->
-   iterate K>=1 (9d). Unit test: `python tests/test_whc_gram.py` in the merging
-   env (pins the closed form + limits; run it before the HPC batch). This decides
-   whether the paper is a tie-study or stronger.
+0. **DATA TIER IS DONE — it's a loss.** Full campaign in
+   [`results/mergebench/EXPERIMENTS_whc_gram.md`]: `whc_gram` caps at ~49 gate
+   (< dataless tie 51.3 < baselines 51.8). alpha refuted (catastrophic on the
+   full-covariance solve), iterative K=1 flat (the GLUE edge does not transfer).
+   Stop pushing the data tier.
+1. **AAAI win attempt — see [`docs/AAAI_PLAN.md`].** Target: a robust >1 pt N=5
+   win on the DATALESS side via **coherence-gated per-parameter alpha** (scale each
+   param's update by inter-expert agreement; resolves the global-alpha tension that
+   capped dataless at the 51.3 tie). Phased cheap->full with kill gates (Phase 1
+   gate < 51.0 -> fold). PENDING Protik's approval of the bet + thresholds before
+   Phase 0 coding. The whc_gram infra (estimator/merge/eval drivers, T1/T2 proxy)
+   is reused as-is.
 2. **Complete the table honestly:** build the safety env (safety-eval-fork + vLLM,
    TIER2_RUNBOOK Step 5), full-eval the best dataless variant `l1e-3_a2`
    (LIMIT=0, n_samples=10, + multilingual on L40S ATTN=sdpa), run safety for the
