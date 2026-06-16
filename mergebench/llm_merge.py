@@ -47,6 +47,110 @@ from .io_utils import ShardedStateReader, save_merged
 _EPS = 1e-12
 
 
+def _pscale_factor(pscale: str, *, u: torch.Tensor, tvs: List[torch.Tensor],
+                   sum_tv: torch.Tensor, sum_abs: torch.Tensor,
+                   alpha_max: float, beta: float) -> torch.Tensor:
+    """Per-parameter update scale a_p for a ``whc_diag`` update ``u`` given the
+    expert task vectors ``tvs`` (and their precomputed sum / abs-sum). See the
+    ``pscale`` docstring in :func:`merge_checkpoints` for the definitions."""
+    if pscale == "coherence":
+        coh = sum_tv.abs() / (sum_abs + _EPS)
+        return 1.0 + (alpha_max - 1.0) * coh.pow(beta)
+    if pscale == "consensus":
+        s = torch.sign(u)
+        cons = torch.zeros_like(u)
+        for tv in tvs:
+            cons += torch.where(torch.sign(tv) == s, tv, torch.zeros_like(tv))
+        return (cons.abs() / (u.abs() + _EPS)).clamp(min=1.0, max=alpha_max)
+    raise ValueError(f"Unknown pscale mode: {pscale}")
+
+
+def merge_whc_diag_pscale_multi(base_dir: str,
+                                expert_dirs: List[str],
+                                variants: List[dict],
+                                save_dirs: List[str],
+                                *,
+                                lam: float = 1e-3,
+                                log_every: int = 50) -> Dict[str, float]:
+    """Single-pass ``whc_diag`` merge that emits MANY per-parameter-scale
+    variants at once (dataless ``curvature="taskvec"`` only).
+
+    All variants share the entire expensive computation -- reading the six
+    models off disk and forming the curvature-weighted-mean update
+    ``u = w_M^HTCL - w_pre`` -- and differ only in the per-parameter scale
+    ``a_p`` applied to ``u``. Sweeping them with N separate
+    :func:`merge_checkpoints` calls re-reads all experts N times (the NFS I/O
+    that dominates wall time at 8B); this reads each key's tensors ONCE and
+    writes all N variants, cutting merge I/O ~Nx. Numerically identical to
+    calling :func:`merge_checkpoints` with ``method="whc_diag",
+    curvature="taskvec", pscale=...`` per variant.
+
+    Parameters
+    ----------
+    variants:
+        List of dicts, each ``{"tag": str, "pscale": "consensus"|"coherence",
+        "alpha_max": float, "beta": float}`` (``beta`` used by coherence only).
+    save_dirs:
+        Parallel list of output directories, one per variant.
+    """
+    if len(variants) != len(save_dirs):
+        raise ValueError("variants and save_dirs must be the same length.")
+    base = ShardedStateReader(base_dir)
+    experts = [ShardedStateReader(d) for d in expert_dirs]
+    n = len(experts)
+    merged: List[Dict[str, torch.Tensor]] = [{} for _ in variants]
+
+    keys = base.keys()
+    n_merged, n_copied = 0, 0
+    for idx, key in enumerate(keys):
+        base_t = base.get(key)
+        if not _is_float(base_t) or not _shapes_agree(key, base, experts):
+            for m in merged:
+                m[key] = base_t.clone()
+            n_copied += 1
+        else:
+            out_dtype = base_t.dtype
+            w_pre = base_t.float()
+            w_experts = [e.get(key).float() for e in experts]
+            # whc_diag closed form (taskvec curvature) + ensemble-mean anchor.
+            w_bar = torch.zeros_like(w_pre)
+            for w in w_experts:
+                w_bar += w
+            w_bar /= n
+            num = lam * w_bar
+            den = torch.full_like(w_pre, lam)
+            for w_i in w_experts:
+                f_i = (w_i - w_pre) ** 2
+                num += f_i * w_i
+                den += f_i
+            out0 = num / (den + _EPS)             # alpha=1 closed form
+            u = out0 - w_pre
+            tvs = [w - w_pre for w in w_experts]
+            sum_tv = torch.zeros_like(w_pre)
+            sum_abs = torch.zeros_like(w_pre)
+            for tv in tvs:
+                sum_tv += tv
+                sum_abs += tv.abs()
+            for m, v in zip(merged, variants):
+                a_p = _pscale_factor(v["pscale"], u=u, tvs=tvs, sum_tv=sum_tv,
+                                     sum_abs=sum_abs,
+                                     alpha_max=float(v["alpha_max"]),
+                                     beta=float(v.get("beta", 1.0)))
+                m[key] = (w_pre + a_p * u).to(out_dtype)
+            n_merged += 1
+
+        if (idx + 1) % log_every == 0 or (idx + 1) == len(keys):
+            print(f"  [whc_pscale_multi] {idx + 1}/{len(keys)} keys "
+                  f"(merged={n_merged}, copied={n_copied}, "
+                  f"variants={len(variants)})", flush=True)
+
+    for m, sd in zip(merged, save_dirs):
+        save_merged(m, sd, aux_src_dir=base_dir)
+        print(f"  [whc_pscale_multi] saved -> {sd}", flush=True)
+    return {"n_merged": float(n_merged), "n_copied": float(n_copied),
+            "n_experts": float(n), "n_variants": float(len(variants))}
+
+
 def _shapes_agree(key: str,
                   base: ShardedStateReader,
                   experts: List[ShardedStateReader]) -> bool:

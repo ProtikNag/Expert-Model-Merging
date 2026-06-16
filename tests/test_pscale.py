@@ -21,7 +21,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from mergebench.io_utils import ShardedStateReader  # noqa: E402
-from mergebench.llm_merge import merge_checkpoints   # noqa: E402
+from mergebench.llm_merge import (  # noqa: E402
+    merge_checkpoints, merge_whc_diag_pscale_multi)
 
 _TOL = 1e-5
 
@@ -131,6 +132,46 @@ def test_consensus_respects_alpha_max_cap():
         assert torch.allclose(cons, torch.tensor([6.0]), atol=1e-4), cons
 
 
+def test_single_pass_multi_matches_per_variant():
+    """merge_whc_diag_pscale_multi (one read pass, all variants) must be
+    numerically identical to calling merge_checkpoints per variant."""
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        torch.manual_seed(7)
+        out_dim, in_dim, n = 4, 5, 4
+        base = {"lin.weight": torch.zeros(out_dim, in_dim),
+                "norm.weight": torch.zeros(in_dim),               # mean fallback
+                "buf": torch.arange(3, dtype=torch.int64)}        # non-float copy
+        base_dir = _write_ckpt(tmp / "base", base)
+        expert_dirs = []
+        for i in range(n):
+            e = {"lin.weight": torch.randn(out_dim, in_dim),
+                 "norm.weight": torch.randn(in_dim),
+                 "buf": torch.arange(3, dtype=torch.int64)}
+            expert_dirs.append(_write_ckpt(tmp / f"exp{i}", e))
+        variants = [
+            dict(tag="cons3", pscale="consensus", alpha_max=3.0, beta=1.0),
+            dict(tag="cons5", pscale="consensus", alpha_max=5.0, beta=1.0),
+            dict(tag="coh5b2", pscale="coherence", alpha_max=5.0, beta=2.0),
+        ]
+        save_dirs = [str(tmp / v["tag"]) for v in variants]
+        merge_whc_diag_pscale_multi(base_dir, expert_dirs, variants, save_dirs,
+                                    lam=1e-3)
+        for v, sd in zip(variants, save_dirs):
+            ref_dir = str(tmp / f"ref_{v['tag']}")
+            merge_checkpoints(method="whc_diag", base_dir=base_dir,
+                              expert_dirs=expert_dirs, save_dir=ref_dir,
+                              lam=1e-3, curvature="taskvec",
+                              pscale=v["pscale"], alpha_max=v["alpha_max"],
+                              beta=v["beta"])
+            got = ShardedStateReader(sd)
+            ref = ShardedStateReader(ref_dir)
+            for k in ("lin.weight", "norm.weight"):
+                a, b = got.get(k).float(), ref.get(k).float()
+                assert torch.allclose(a, b, atol=1e-6), (v["tag"], k,
+                                                         (a - b).abs().max())
+
+
 if __name__ == "__main__":
     test_global_default_is_plain_closed_form()
     test_coherence_one_recovers_global_alpha()
@@ -138,4 +179,5 @@ if __name__ == "__main__":
     test_consensus_single_expert_param_stays_unscaled()
     test_consensus_agreeing_experts_recover_the_sum()
     test_consensus_respects_alpha_max_cap()
+    test_single_pass_multi_matches_per_variant()
     print("all pscale tests passed")

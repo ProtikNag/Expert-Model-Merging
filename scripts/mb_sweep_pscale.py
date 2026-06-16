@@ -30,7 +30,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from mergebench.llm_merge import merge_checkpoints  # noqa: E402
+from mergebench.llm_merge import merge_whc_diag_pscale_multi  # noqa: E402
 from scripts.mb_download import expert_repo, local_dir_for  # noqa: E402
 from src.utils import ensure_dir, load_config  # noqa: E402
 
@@ -77,36 +77,38 @@ def main() -> None:
     def _floats(s):
         return [float(x) for x in s.split(",") if x.strip()]
 
-    # (tag, kwargs to merge_checkpoints)
-    plan = []
+    # All variants share the whc_diag closed form and differ only in the
+    # per-parameter scale, so merge them in ONE pass over the keys (reads the
+    # six models once, not once-per-variant -- the dominant NFS I/O at 8B).
+    variants = []
     for am in _floats(args.cons_amaxes):
-        plan.append((f"whc_cons_l{lam_tag}_am{_fmt(am)}",
-                     dict(pscale="consensus", alpha_max=am)))
+        variants.append(dict(tag=f"whc_cons_l{lam_tag}_am{_fmt(am)}",
+                             pscale="consensus", alpha_max=am, beta=1.0))
     for am in _floats(args.coh_amaxes):
         for b in _floats(args.coh_betas):
-            plan.append((f"whc_coh_l{lam_tag}_am{_fmt(am)}_b{_fmt(b)}",
-                         dict(pscale="coherence", alpha_max=am, beta=b)))
+            variants.append(dict(tag=f"whc_coh_l{lam_tag}_am{_fmt(am)}_b{_fmt(b)}",
+                                pscale="coherence", alpha_max=am, beta=b))
 
+    save_dirs = [str(merged_root / v["tag"]) for v in variants]
     manifest_path = Path(args.manifest) if args.manifest else (
         merged_root / "pscale_manifest.txt")
     print(f"[pscale-sweep] base={cfg['base_name']} domains={domains} "
-          f"lam={lam} variants={len(plan)} -> {manifest_path}", flush=True)
+          f"lam={lam} variants={len(variants)} (single-pass) -> {manifest_path}",
+          flush=True)
+    for v in variants:
+        print(f"  - {v['tag']}: {v['pscale']} alpha_max={v['alpha_max']} "
+              f"beta={v['beta']}", flush=True)
 
-    lines = []
-    for tag, kw in plan:
-        save_dir = merged_root / tag
-        print(f"\n[variant {tag}] lam={lam} {kw}", flush=True)
-        t0 = time.time()
-        merge_checkpoints(method="whc_diag", base_dir=base_dir,
-                          expert_dirs=expert_dirs, save_dir=str(save_dir),
-                          lam=lam, curvature="taskvec", **kw)
-        lines.append(f"{tag} {save_dir}")
-        print(f"  [{tag}] done in {time.time() - t0:.1f}s", flush=True)
+    t0 = time.time()
+    merge_whc_diag_pscale_multi(base_dir=base_dir, expert_dirs=expert_dirs,
+                                variants=variants, save_dirs=save_dirs, lam=lam)
+    print(f"\n[done] {len(variants)} variants in {time.time() - t0:.1f}s",
+          flush=True)
 
     with open(manifest_path, "w") as f:
-        f.write("\n".join(lines) + "\n")
-    print(f"\n[done] {len(lines)} variants; manifest -> {manifest_path}",
-          flush=True)
+        f.write("\n".join(f"{v['tag']} {sd}"
+                          for v, sd in zip(variants, save_dirs)) + "\n")
+    print(f"[done] manifest -> {manifest_path}", flush=True)
 
 
 if __name__ == "__main__":
