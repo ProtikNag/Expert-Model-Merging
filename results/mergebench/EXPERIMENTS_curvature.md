@@ -131,7 +131,7 @@ mean coefficient.** Math reasoning is deep *sequential* computation; concentrati
 some blocks and near-absent in others breaks the reasoning chain MORE than uniform weakening. → per-block
 freedom helps only the DISCRIMINATIVE domains; depth-sensitive generative must be held at champion.
 
-### `ta_pl_b8_frzgen` (frozen-generative per-block, 16 DOF) — IN FLIGHT
+### `ta_pl_b8_frzgen` (frozen-generative per-block, 16 DOF) — FAILS DECISIVELY
 Sharpened recipe: FREEZE inst/math/coding at champion `[0.8,0.4,0.4]`, per-block pooled solve ONLY
 safety + multilingual. Converged cleanly (mean_loss 1.358→1.335, monotone). Derived `S*`:
 
@@ -143,19 +143,56 @@ safety + multilingual. Converged cleanly (mean_loss 1.358→1.335, monotone). De
 | safety | **0.211** (↓ from 0.4) | early-weighted [0.32,0.13,0.21,0.25,0.17,0.24,0.23,0.16] |
 | multilingual | **0.459** (↑ from 0.4) | late-weighted [0.44,0.37,0.28,0.29,0.45,0.50,0.57,**0.79**] |
 
-The interference wall again: the pooled solve pushed safety DOWN and ml UP-and-late. Since generative
-is pinned at champion, this candidate can only GAIN via safety/ml and only LOSE via generative drift
-(the safety/ml deltas still perturb shared weights). **Eval running on node493** (idx18 in all three
-eval scripts): safety `21591978`, multilingual `21591979`, math@500 `21591980`, ifeval `21591981`,
-coding `21591982`. Decisive gates = safety + ml. Predicted outcome (given the metric-faithfulness
-diagnosis): the surrogate lowering safety to 0.211 likely REDUCES the safety expert's refusal
-contribution → safety RTA falls; a clear win is unlikely, but the data decides.
+**EVAL VERDICT (2026-06-21):**
 
-## Standing conclusion (pending the frzgen gates)
+| domain | frzgen | champion | Δ |
+|---|---|---|---|
+| instruction (ifeval prompt_strict) | **23.66** | 37.8 | **−14.1** |
+| math (gsm8k @500) | **64.80** | 77.5 | **−12.7** |
+| multilingual (12-task) | **48.84** | 51.7 | **−2.9** |
+| coding | _pending_ | 48.8 | — |
+| safety | _pending_ | 57.6 | — |
 
-Coefficient placement — scalar (Phase 1) OR per-block (Phase 2) — has not beaten the hand-tuned
-champion, with a single mechanistic explanation: the surrogate's distillation loss is faithful to
-distribution-matching metrics but anti-faithful to argmax-generative ones, and the two domain families
-impose an interference wall no shared coefficient can cross. If `ta_pl_b8_frzgen` also only ties, the
-honest contribution becomes **the diagnosis itself** (the interference wall + the metric-faithfulness
-asymmetry + the per-block depth-sensitivity negative result) rather than a curvature SOTA claim.
+**Even with generative coefficients FROZEN at champion, instruction and math COLLAPSED ~13–14 points,
+and multilingual — the domain we tried to lift — went DOWN 2.9.** Verdict decided regardless of the two
+pending gates: generative drift alone is −27 across inst+math; with coding≈champion and a generous
+safety~65 the average lands ~50.5 vs champion 55.43 — **loses by ~5.**
+
+**Mechanism — the deeper confirmation of the interference wall.** The experts share the same weight
+tensors: `w_block = w_pre + Σ_i S[i,block]·τ_{i,block}`. Re-shaping safety/ml from flat 0.4 to per-block
+patterns rewrites the merged weights in EVERY block, even with generative coefficients pinned. The
+block-7 ml=0.79 spike lands on the final layers + lm_head/norm that all generative decoding depends on,
+corrupting the math/instruction reasoning chains. **Per-block "freedom" does NOT isolate domains — it
+redistributes the same entangled perturbation and introduces NEW interference.** This is why no
+coefficient placement can win: you cannot move one domain's coefficients without collateral damage to
+the others, because the capabilities live in the same numbers (the N=5 weight-entanglement finding).
+
+---
+
+## CAMPAIGN CONCLUSION — coefficient placement cannot beat the champion (the diagnosis IS the result)
+
+Every curvature-derived candidate — 5-DOF scalar (Phase 1) and 40-DOF per-block (Phase 2) — loses to
+the hand-tuned champion `ta_pe_inst0.8_codi0.4` (avg 55.43). This is not a tuning failure; it is
+structural, and the three findings below are the contribution:
+
+1. **The interference wall.** Two domain families pull OPPOSITE on every shared coefficient:
+   generative (inst/math/coding) need their expert PRESENT (high own-coeff); discriminative
+   (safety/multilingual) need LOW interference from all others. The champion is the Pareto-optimal
+   point; no scalar beats it, and per-block placement cannot separate the families because the experts
+   share weight tensors (N=5 weight-space entanglement, `EXPERIMENTS_routed.md` Bets A/B).
+
+2. **Metric-faithfulness asymmetry.** A distillation/curvature surrogate on val text is faithful ONLY
+   to distribution-matching metrics (ml acc_norm, safety RTA) and ANTI-faithful to argmax-generative
+   ones (ifeval/gsm8k/pass@1) — token argmax-CE is ~flat in the over-/under-merging directions the
+   generative benchmarks care about. Lower surrogate loss ≠ better generative score. Any objective that
+   scores merges by behavioral mimicry on text will systematically mis-rank generative domains.
+
+3. **Per-block depth-sensitivity negative.** Concentrating an expert in some transformer blocks and
+   thinning it in others breaks depth-sequential generative computation MORE than uniform weakening
+   (`ta_pl_b8` math 0.594 @ mean 0.19 < scalar 0.670 @ 0.10), and perturbing the late/lm_head blocks
+   to place a discriminative expert collaterally destroys generative decoding (`ta_pl_b8_frzgen`).
+
+**Framing:** report the per-EXPERT scalar win (Bet D, 55.43, dataless) as the positive result, and this
+campaign as the accompanying analysis — why curvature/Taylor coefficient-derivation does NOT improve on
+a benchmark-tuned per-expert merge at N=5, with the interference wall + metric-faithfulness asymmetry as
+the mechanism. NOT a curvature-SOTA claim. Campaign CLOSED 2026-06-21.

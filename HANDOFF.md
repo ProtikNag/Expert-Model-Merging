@@ -8,29 +8,34 @@ operational guide is [`TIER2_RUNBOOK.md`](TIER2_RUNBOOK.md).
 Branch: `tier2-llama-scaffold` (NOT merged to main). Repo:
 github.com/ProtikNag/Expert-Model-Merging. Workflow: push from Mac, pull on HPC.
 
-## ⏳ CURRENT WORK (RESUME HERE) — make the CURVATURE-AWARE merge win
-2026-06-18→21. After the per-EXPERT win (Bet D, below) the user wants a *genuine* curvature/Taylor
-surrogate to numerically BEAT the hand-tuned champion (avg 55.43). Full ledger:
+## ✅ CURVATURE CAMPAIGN — CLOSED 2026-06-21 (conclusive negative; the diagnosis is the contribution)
+2026-06-18→21. The user asked for a *genuine* curvature/Taylor surrogate to numerically BEAT the
+hand-tuned champion (Bet D, avg 55.43). It cannot, and we now know exactly why. Full ledger:
 **[`results/mergebench/EXPERIMENTS_curvature.md`](results/mergebench/EXPERIMENTS_curvature.md)**.
 Code: `scripts/mb_fit_perexpert_surrogate.py` (scalar, 5 DOF) + `scripts/mb_fit_perlayer_surrogate.py`
 (per-block, 40 DOF) + wrappers `mb_fit_surrogate_tier2.sh` / `mb_fit_perlayer_tier2.sh` (env `merging`).
 
-**State (2026-06-21):**
-- **Phase 1 (per-expert scalar) — EXHAUSTED, no win.** Three candidates lose (C 52.58; cold pooled
-  `ta_pe_mix_pool_kl` ~53.0; clean ml-boost `ta_pe_inst0.8_mult0.73` 53.96). Clean mechanism = **the
-  interference wall**: generative domains (inst/math/coding) want HIGH own-coeff, discriminative ones
-  (safety/ml) want LOW interference from all others; champion is the Pareto-optimal scalar point.
-- **Diagnosis:** the distillation surrogate is faithful ONLY to distribution-matching metrics (ml
-  acc_norm, safety RTA), ANTI-faithful to argmax-generative (ifeval/gsm8k/pass@1). Lower surrogate
-  loss ≠ better generative benchmark.
-- **Phase 2 (per-block, 40 DOF):** `ta_pl_b8` cold = NEGATIVE (gsm8k 0.594 @ math mean 0.19 — per-block
-  placement breaks depth-sensitive generative). `ta_pl_b8_frzgen` (freeze inst/math/coding at champion,
-  per-block solve ONLY safety+ml; safety→0.211 early, ml→0.459 late) = **EVAL IN FLIGHT** on node493,
-  idx18: safety `21591978`, ml `21591979`, math@500 `21591980`, ifeval `21591981`, coding `21591982`.
-- **RESUME:** read the idx18 results in `results/mb_eval/Llama-3.1-8B/ta_pl_b8_frzgen/`. Decisive gates
-  = safety same-formula + ml acc_norm. If (Δsafety+Δml) > generative drift vs champion → first curvature
-  win; else the contribution is **the diagnosis** (interference wall + metric-faithfulness asymmetry +
-  per-block depth-sensitivity negative). Score safety with `scripts/mb_make_tier2_table.py` conventions.
+**Outcome:** every curvature-derived candidate loses to the champion.
+- **Phase 1 (per-expert scalar) — EXHAUSTED.** C 52.58; cold pooled `ta_pe_mix_pool_kl` ~53.0; clean
+  ml-boost `ta_pe_inst0.8_mult0.73` 53.96. The champion `[0.8,0.4,0.4,0.4,0.4]` is the Pareto-optimal
+  scalar point.
+- **Phase 2 (per-block, 40 DOF) — FAILS.** `ta_pl_b8` cold (gsm8k 0.594 @ math mean 0.19). Final
+  `ta_pl_b8_frzgen` (freeze generative at champion, per-block solve ONLY safety+ml): **ifeval 23.66
+  (−14.1), gsm8k@500 64.80 (−12.7), ml 48.84 (−2.9)** — generative collapsed even though FROZEN, and ml
+  (the target) fell. Loses by ~5. Numbers in `results/mb_eval/Llama-3.1-8B/ta_pl_b8_frzgen/`.
+
+**The contribution (three findings, write these up):** (1) **the interference wall** — generative
+domains want HIGH own-coeff, discriminative ones want LOW interference; no shared coefficient crosses it
+because at N=5 the experts are entangled in weight space (share the same tensors); (2) **metric-
+faithfulness asymmetry** — a distillation surrogate is faithful to distribution-matching metrics
+(ml acc_norm, safety RTA) but ANTI-faithful to argmax-generative (ifeval/gsm8k/pass@1); (3) **per-block
+depth-sensitivity** — placing a domain in some blocks breaks depth-sequential generative computation
+and perturbing late/lm_head blocks collaterally destroys generative decoding. **Framing:** Bet D (55.43,
+dataless) is the positive result; this campaign is the analysis of why curvature coefficient-derivation
+does not improve on a benchmark-tuned per-expert merge at N=5. NOT a curvature-SOTA claim.
+
+**Still finishing (does NOT change the verdict):** coding + safety gates for `ta_pl_b8_frzgen` (idx18)
+running on node493; numbers will be appended to the ledger table when they land.
 
 ## ✅ WIN SECURED — per-EXPERT coefficient decoupling (Bet D)
 2026-06-16. We HAVE the dataless win. After weight-space routing failed/tied (Bets A/B below),
