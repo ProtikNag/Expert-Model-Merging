@@ -125,11 +125,13 @@ not lm-eval. One-time setup on an L40S node:
 
 ```sh
 cd /work/pnag
-git clone https://github.com/uiuctml/safety-eval-fork.git   # confirm exact URL in MergeBench README
+git clone https://github.com/nouhadziri/safety-eval-fork.git   # exact URL per MergeBench/README.md:61
 conda create -p /work/pnag/envs/safety-eval python=3.10 -y
 conda activate /work/pnag/envs/safety-eval
 export TMPDIR=/work/pnag/tmp
-cd safety-eval-fork && pip install -e .                       # pulls vllm + classifiers
+conda install -c conda-forge sentencepiece -y                 # binary; pip-build fails on RHEL7
+pip install vllm==0.6.3.post1                                 # fork needs vllm>=0.6.2/torch>=2.4 (README's 0.4.2 is STALE)
+cd safety-eval-fork && pip install -e . && pip install --upgrade-strategy only-if-needed -r requirements.txt
 ```
 
 RHEL7 caveats from `project_eval_envs_hpc` apply (pin numpy<2; wheel-only). vLLM

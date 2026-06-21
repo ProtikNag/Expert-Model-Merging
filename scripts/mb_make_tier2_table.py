@@ -41,6 +41,7 @@ ROW_ORDER = [
     ("TaskArithmetic", "Dataless merge", "TaskArithmetic"),
     ("task_arith", "Dataless merge", "task_arith (cross-check)"),
     ("whc_diag", "Dataless merge", "HTCL"),
+    ("ta_pe_inst0.8_codi0.4", "Dataless merge", "HTCL per-expert (champion)"),
     ("instruction_expert", "Specialist", "instruction expert"),
     ("math_expert", "Specialist", "math expert"),
     ("coding_expert", "Specialist", "coding expert"),

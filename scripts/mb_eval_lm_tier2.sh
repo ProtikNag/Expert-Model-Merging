@@ -77,6 +77,12 @@ math_expert mb_ckpts/MergeBench__${BASE_NAME}_math
 coding_expert mb_ckpts/MergeBench__${BASE_NAME}_coding
 safety_expert mb_ckpts/MergeBench__${BASE_NAME}_safety
 multilingual_expert mb_ckpts/MergeBench__${BASE_NAME}_multilingual
+ta_pe_inst0.8_codi0.4 mb_merged/${BASE_NAME}/ta_pe_inst0.8_codi0.4
+ta_pe_inst0.8_codi0.49_safe0.64_mult0.74 mb_merged/${BASE_NAME}/ta_pe_inst0.8_codi0.49_safe0.64_mult0.74
+ta_pe_mix_pool_kl mb_merged/${BASE_NAME}/ta_pe_mix_pool_kl
+ta_pe_inst0.8_mult0.73 mb_merged/${BASE_NAME}/ta_pe_inst0.8_mult0.73
+ta_pl_b8 mb_merged/${BASE_NAME}/ta_pl_b8
+ta_pl_b8_frzgen mb_merged/${BASE_NAME}/ta_pl_b8_frzgen
 "
 ROW=$(echo "$MODELS" | grep -v '^$' | sed -n "$((SLURM_ARRAY_TASK_ID + 1))p")
 TAG=$(echo "$ROW" | awk '{print $1}')

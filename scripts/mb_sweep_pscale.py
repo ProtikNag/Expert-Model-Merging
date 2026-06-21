@@ -36,9 +36,13 @@ from src.utils import ensure_dir, load_config  # noqa: E402
 
 
 def _fmt(x: float) -> str:
-    """Compact, filesystem-safe float tag, e.g. 1e-3 -> '1e-3', 5.0 -> '5'."""
+    """Compact, filesystem-safe float tag, e.g. 1e-3 -> '1e-3', 5.0 -> '5',
+    2.5 -> '2.5'. Small magnitudes (lambda) stay in exponential form; moderate
+    magnitudes (alpha_max, beta) render as plain decimals."""
     if x == int(x):
         return str(int(x))
+    if abs(x) >= 0.1:
+        return "%g" % x            # 2.5 -> '2.5', 3.5 -> '3.5'
     return f"{x:.0e}".replace("e-0", "e-").replace("e+0", "e+")
 
 

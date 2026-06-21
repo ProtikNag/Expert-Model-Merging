@@ -49,10 +49,10 @@ conda activate "${SAFETY_ENV}"
 
 export HF_TOKEN="$(tr -d '[:space:]' < ${REPO}/hf_token.txt 2>/dev/null)"
 export TMPDIR=/work/pnag/tmp; mkdir -p "$TMPDIR"
-export OPENAI_API_KEY=""   # MergeBench leaves this empty; classifiers are local
+export OPENAI_API_KEY="EMPTY"   # NON-empty placeholder: fork builds AsyncOpenAI() at import & newer openai lib rejects ""; our 4 tasks use LOCAL (WildGuard) classifiers
 export TOKENIZERS_PARALLELISM=false
 
-# index -> "tag absolute_model_path": base, 7 merges, 5 experts (idx 0-12).
+# index -> "tag absolute_model_path": base, 7 merges, 5 experts, champion (idx 0-13).
 MODELS="
 base ${REPO}/mb_ckpts/${BASE_REPO_DIR}
 task_arith ${REPO}/mb_merged/${BASE_NAME}/task_arith
@@ -67,6 +67,12 @@ math_expert ${REPO}/mb_ckpts/MergeBench__${BASE_NAME}_math
 coding_expert ${REPO}/mb_ckpts/MergeBench__${BASE_NAME}_coding
 safety_expert ${REPO}/mb_ckpts/MergeBench__${BASE_NAME}_safety
 multilingual_expert ${REPO}/mb_ckpts/MergeBench__${BASE_NAME}_multilingual
+ta_pe_inst0.8_codi0.4 ${REPO}/mb_merged/${BASE_NAME}/ta_pe_inst0.8_codi0.4
+ta_pe_inst0.8_codi0.49_safe0.64_mult0.74 ${REPO}/mb_merged/${BASE_NAME}/ta_pe_inst0.8_codi0.49_safe0.64_mult0.74
+ta_pe_mix_pool_kl ${REPO}/mb_merged/${BASE_NAME}/ta_pe_mix_pool_kl
+ta_pe_inst0.8_mult0.73 ${REPO}/mb_merged/${BASE_NAME}/ta_pe_inst0.8_mult0.73
+ta_pl_b8 ${REPO}/mb_merged/${BASE_NAME}/ta_pl_b8
+ta_pl_b8_frzgen ${REPO}/mb_merged/${BASE_NAME}/ta_pl_b8_frzgen
 "
 ROW=$(echo "$MODELS" | grep -v '^$' | sed -n "$((SLURM_ARRAY_TASK_ID + 1))p")
 TAG=$(echo "$ROW" | awk '{print $1}')

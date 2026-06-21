@@ -28,13 +28,22 @@ Operational guide: [`TIER2_RUNBOOK.md`](TIER2_RUNBOOK.md). Active branch:
   closed form underperformed at N=5 because it returns a curvature-weighted *mean*
   of the experts, diluting each update by ~1/N versus task arithmetic's *sum*. A
   single global **update scale** `alpha` recovers math/instruction but trades away
-  coding (instruction wants high `alpha`, coding low), capping HTCL at a tie (51.3)
-  with the dataless baselines (Consensus 51.8). The current win attempt replaces
-  the global scalar with **per-parameter scaling** derived from inter-expert
-  agreement (`pscale=consensus|coherence`), which targets that tension directly;
-  Round 0 (T1 gate) is running. Derivation: [`NOTES.md`](NOTES.md) §11; campaign
-  ledger: [`results/mergebench/EXPERIMENTS_pscale.md`]; status & resume pointer:
-  [`HANDOFF.md`](HANDOFF.md).
+  coding, capping it at a tie (51.3) with the dataless baselines (Consensus 51.8).
+  Per-parameter / per-layer α scaling also tied — at N=5 the domains are **entangled
+  in weight space**, so the separable axis is the *expert*, not the weight. Acting on
+  that axis (**per-EXPERT coefficient decoupling**, `w = w_pre + Σ_i s_i·τ_i`) gives
+  the dataless win: champion `ta_pe_inst0.8_codi0.4` reaches **full-protocol avg 55.43
+  vs Consensus** with the best forgetting of any method. Ledger:
+  [`results/mergebench/EXPERIMENTS_routed.md`].
+- **Curvature win attempt — IN PROGRESS.** Deriving the per-expert coefficients from a
+  genuine Gauss-Newton / Taylor surrogate (empirical-Fisher curvature + damped Newton,
+  behavioral-mimicry `teacher_mix` objective) instead of hand-tuning. Finding so far:
+  scalar coefficient space is **exhausted** (an *interference wall* — generative domains
+  want high own-coefficient, discriminative domains want low interference; the champion is
+  Pareto-optimal), and per-block placement breaks depth-sensitive generative reasoning. A
+  frozen-generative per-block variant is under evaluation. Ledger:
+  [`results/mergebench/EXPERIMENTS_curvature.md`]. Derivation: [`NOTES.md`](NOTES.md) §11;
+  status & resume pointer: [`HANDOFF.md`](HANDOFF.md).
 
 The MergeBench code is independent of the GLUE pipeline below: merging in
 [`mergebench/llm_merge.py`](mergebench/llm_merge.py), drivers in

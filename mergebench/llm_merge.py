@@ -47,9 +47,34 @@ from .io_utils import ShardedStateReader, save_merged
 _EPS = 1e-12
 
 
+def _consensus_ratio(u: torch.Tensor, tvs: List[torch.Tensor]) -> torch.Tensor:
+    """Raw (uncapped) consensus ratio |c_p| / (|u_p| + eps), where c_p sums the
+    task vectors whose sign agrees with the merged update u."""
+    s = torch.sign(u)
+    cons = torch.zeros_like(u)
+    for tv in tvs:
+        cons += torch.where(torch.sign(tv) == s, tv, torch.zeros_like(tv))
+    return cons.abs() / (u.abs() + _EPS)
+
+
+def _dominant_expert(tvs: List[torch.Tensor]) -> torch.Tensor:
+    """Per-parameter index of the expert with the largest |task vector| (the
+    expert that 'owns' that weight). int8 tensor, same shape as a task vector."""
+    best_abs = tvs[0].abs().clone()
+    argmax = torch.zeros_like(best_abs, dtype=torch.int8)
+    for i in range(1, len(tvs)):
+        a = tvs[i].abs()
+        upd = a > best_abs
+        best_abs = torch.where(upd, a, best_abs)
+        argmax = torch.where(upd, torch.full_like(argmax, i), argmax)
+    return argmax
+
+
 def _pscale_factor(pscale: str, *, u: torch.Tensor, tvs: List[torch.Tensor],
                    sum_tv: torch.Tensor, sum_abs: torch.Tensor,
-                   alpha_max: float, beta: float) -> torch.Tensor:
+                   alpha_max: float, beta: float,
+                   low_idx: Optional[List[int]] = None,
+                   alpha_low: float = 1.0) -> torch.Tensor:
     """Per-parameter update scale a_p for a ``whc_diag`` update ``u`` given the
     expert task vectors ``tvs`` (and their precomputed sum / abs-sum). See the
     ``pscale`` docstring in :func:`merge_checkpoints` for the definitions."""
@@ -57,11 +82,20 @@ def _pscale_factor(pscale: str, *, u: torch.Tensor, tvs: List[torch.Tensor],
         coh = sum_tv.abs() / (sum_abs + _EPS)
         return 1.0 + (alpha_max - 1.0) * coh.pow(beta)
     if pscale == "consensus":
-        s = torch.sign(u)
-        cons = torch.zeros_like(u)
-        for tv in tvs:
-            cons += torch.where(torch.sign(tv) == s, tv, torch.zeros_like(tv))
-        return (cons.abs() / (u.abs() + _EPS)).clamp(min=1.0, max=alpha_max)
+        return _consensus_ratio(u, tvs).clamp(min=1.0, max=alpha_max)
+    if pscale == "consensus_routed":
+        # Decouple the instruction-vs-coding alpha trade-off: cap the update at
+        # alpha_low on parameters OWNED by a "low-alpha" expert (the dominant
+        # task vector there belongs to e.g. the coding expert, which degrades
+        # when over-boosted), and at alpha_max (high) everywhere else. Dataless.
+        ratio = _consensus_ratio(u, tvs).clamp(min=1.0)
+        argmax = _dominant_expert(tvs)
+        low_mask = torch.zeros_like(u, dtype=torch.bool)
+        for li in (low_idx or []):
+            low_mask |= (argmax == li)
+        cap = torch.where(low_mask, torch.full_like(u, float(alpha_low)),
+                          torch.full_like(u, float(alpha_max)))
+        return torch.minimum(ratio, cap)
     raise ValueError(f"Unknown pscale mode: {pscale}")
 
 
@@ -135,7 +169,9 @@ def merge_whc_diag_pscale_multi(base_dir: str,
                 a_p = _pscale_factor(v["pscale"], u=u, tvs=tvs, sum_tv=sum_tv,
                                      sum_abs=sum_abs,
                                      alpha_max=float(v["alpha_max"]),
-                                     beta=float(v.get("beta", 1.0)))
+                                     beta=float(v.get("beta", 1.0)),
+                                     low_idx=v.get("low_idx"),
+                                     alpha_low=float(v.get("alpha_low", 1.0)))
                 m[key] = (w_pre + a_p * u).to(out_dtype)
             n_merged += 1
 
@@ -147,6 +183,66 @@ def merge_whc_diag_pscale_multi(base_dir: str,
     for m, sd in zip(merged, save_dirs):
         save_merged(m, sd, aux_src_dir=base_dir)
         print(f"  [whc_pscale_multi] saved -> {sd}", flush=True)
+    return {"n_merged": float(n_merged), "n_copied": float(n_copied),
+            "n_experts": float(n), "n_variants": float(len(variants))}
+
+
+def merge_task_arith_perexpert_multi(base_dir: str,
+                                     expert_dirs: List[str],
+                                     variants: List[dict],
+                                     save_dirs: List[str],
+                                     *,
+                                     log_every: int = 50) -> Dict[str, float]:
+    """Single-pass PER-EXPERT scaled task arithmetic, many coefficient vectors
+    at once: ``w = w_pre + sum_i s_i * (w_i - w_pre)``.
+
+    The weight-space routing probes (consensus_routed, per-layer energy) showed
+    the domains are ENTANGLED in parameter space -- no partition separates coding
+    from instruction. The separable axis is the EXPERT: give each expert its own
+    coefficient ``s_i`` (instruction is diluted -> high s; coding over-extrapolates
+    -> moderate s). Reads the six models ONCE for all variants.
+
+    variants: list of ``{"tag": str, "coeffs": [s_0, ..., s_{N-1}]}`` (one
+    coefficient per expert, in ``expert_dirs`` order).
+    """
+    if len(variants) != len(save_dirs):
+        raise ValueError("variants and save_dirs must be the same length.")
+    base = ShardedStateReader(base_dir)
+    experts = [ShardedStateReader(d) for d in expert_dirs]
+    n = len(experts)
+    for v in variants:
+        if len(v["coeffs"]) != n:
+            raise ValueError(f"variant {v['tag']}: need {n} coeffs, "
+                             f"got {len(v['coeffs'])}")
+    merged: List[Dict[str, torch.Tensor]] = [{} for _ in variants]
+
+    keys = base.keys()
+    n_merged, n_copied = 0, 0
+    for idx, key in enumerate(keys):
+        base_t = base.get(key)
+        if not _is_float(base_t) or not _shapes_agree(key, base, experts):
+            for m in merged:
+                m[key] = base_t.clone()
+            n_copied += 1
+        else:
+            out_dtype = base_t.dtype
+            w_pre = base_t.float()
+            tvs = [e.get(key).float() - w_pre for e in experts]
+            for m, v in zip(merged, variants):
+                acc = w_pre.clone()
+                for s_i, tv in zip(v["coeffs"], tvs):
+                    if s_i != 0.0:
+                        acc += float(s_i) * tv
+                m[key] = acc.to(out_dtype)
+            n_merged += 1
+        if (idx + 1) % log_every == 0 or (idx + 1) == len(keys):
+            print(f"  [ta_perexpert_multi] {idx + 1}/{len(keys)} keys "
+                  f"(merged={n_merged}, copied={n_copied}, "
+                  f"variants={len(variants)})", flush=True)
+
+    for m, sd in zip(merged, save_dirs):
+        save_merged(m, sd, aux_src_dir=base_dir)
+        print(f"  [ta_perexpert_multi] saved -> {sd}", flush=True)
     return {"n_merged": float(n_merged), "n_copied": float(n_copied),
             "n_experts": float(n), "n_variants": float(len(variants))}
 

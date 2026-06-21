@@ -78,3 +78,7 @@ results/mergebench/*.json
 results/mergebench/*.html
 results/mergebench/*.pdf
 results/mergebench/figures/
+
+# Curvature-campaign intermediates (regenerated on HPC; large/binary)
+mb_cache/
+results/mergebench/*.npz

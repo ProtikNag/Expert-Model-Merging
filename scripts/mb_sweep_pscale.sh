@@ -32,6 +32,7 @@ LAM="${LAM:-1e-3}"
 CONS_AMAXES="${CONS_AMAXES:-3,5,8}"
 COH_AMAXES="${COH_AMAXES:-5}"
 COH_BETAS="${COH_BETAS:-1,2}"
+MANIFEST="${MANIFEST:-}"   # optional: route this run's variants to a separate manifest
 
 cd "${REPO}"
 module load python3/anaconda/2023.7 2>/dev/null || true
@@ -42,10 +43,11 @@ export HF_TOKEN="$(tr -d '[:space:]' < hf_token.txt 2>/dev/null)"
 export TMPDIR=/work/pnag/tmp; mkdir -p "$TMPDIR"
 export OMP_NUM_THREADS="${SLURM_CPUS_ON_NODE:-16}"
 
-echo "[pscale-merge] lam=${LAM} cons_amaxes=${CONS_AMAXES} coh_amaxes=${COH_AMAXES} coh_betas=${COH_BETAS}"
+echo "[pscale-merge] lam=${LAM} cons_amaxes=${CONS_AMAXES} coh_amaxes=${COH_AMAXES} coh_betas=${COH_BETAS} manifest=${MANIFEST:-<default>}"
 python -u scripts/mb_sweep_pscale.py --config "${CONFIG}" \
   --lam "${LAM}" --cons-amaxes "${CONS_AMAXES}" \
-  --coh-amaxes "${COH_AMAXES}" --coh-betas "${COH_BETAS}"
+  --coh-amaxes "${COH_AMAXES}" --coh-betas "${COH_BETAS}" \
+  ${MANIFEST:+--manifest "${MANIFEST}"}
 
 echo "[pscale-merge] done"
 date

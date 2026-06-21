@@ -8,7 +8,71 @@ operational guide is [`TIER2_RUNBOOK.md`](TIER2_RUNBOOK.md).
 Branch: `tier2-llama-scaffold` (NOT merged to main). Repo:
 github.com/ProtikNag/Expert-Model-Merging. Workflow: push from Mac, pull on HPC.
 
-## ⏩ CURRENT WORK — dataless win attempt via per-parameter scaling (RESUME HERE)
+## ⏳ CURRENT WORK (RESUME HERE) — make the CURVATURE-AWARE merge win
+2026-06-18→21. After the per-EXPERT win (Bet D, below) the user wants a *genuine* curvature/Taylor
+surrogate to numerically BEAT the hand-tuned champion (avg 55.43). Full ledger:
+**[`results/mergebench/EXPERIMENTS_curvature.md`](results/mergebench/EXPERIMENTS_curvature.md)**.
+Code: `scripts/mb_fit_perexpert_surrogate.py` (scalar, 5 DOF) + `scripts/mb_fit_perlayer_surrogate.py`
+(per-block, 40 DOF) + wrappers `mb_fit_surrogate_tier2.sh` / `mb_fit_perlayer_tier2.sh` (env `merging`).
+
+**State (2026-06-21):**
+- **Phase 1 (per-expert scalar) — EXHAUSTED, no win.** Three candidates lose (C 52.58; cold pooled
+  `ta_pe_mix_pool_kl` ~53.0; clean ml-boost `ta_pe_inst0.8_mult0.73` 53.96). Clean mechanism = **the
+  interference wall**: generative domains (inst/math/coding) want HIGH own-coeff, discriminative ones
+  (safety/ml) want LOW interference from all others; champion is the Pareto-optimal scalar point.
+- **Diagnosis:** the distillation surrogate is faithful ONLY to distribution-matching metrics (ml
+  acc_norm, safety RTA), ANTI-faithful to argmax-generative (ifeval/gsm8k/pass@1). Lower surrogate
+  loss ≠ better generative benchmark.
+- **Phase 2 (per-block, 40 DOF):** `ta_pl_b8` cold = NEGATIVE (gsm8k 0.594 @ math mean 0.19 — per-block
+  placement breaks depth-sensitive generative). `ta_pl_b8_frzgen` (freeze inst/math/coding at champion,
+  per-block solve ONLY safety+ml; safety→0.211 early, ml→0.459 late) = **EVAL IN FLIGHT** on node493,
+  idx18: safety `21591978`, ml `21591979`, math@500 `21591980`, ifeval `21591981`, coding `21591982`.
+- **RESUME:** read the idx18 results in `results/mb_eval/Llama-3.1-8B/ta_pl_b8_frzgen/`. Decisive gates
+  = safety same-formula + ml acc_norm. If (Δsafety+Δml) > generative drift vs champion → first curvature
+  win; else the contribution is **the diagnosis** (interference wall + metric-faithfulness asymmetry +
+  per-block depth-sensitivity negative). Score safety with `scripts/mb_make_tier2_table.py` conventions.
+
+## ✅ WIN SECURED — per-EXPERT coefficient decoupling (Bet D)
+2026-06-16. We HAVE the dataless win. After weight-space routing failed/tied (Bets A/B below),
+the entanglement finding said the separable axis is the EXPERT, not the weight. Bet D acts on
+that axis: `w = w_pre + Σ_i s_i·τ_i`, each expert its own scalar. Result on the T1 gate:
+**`ta_pe_inst0.8_codi0.4` = GATE 54.1 vs Consensus 51.8 (+2.3)** AND **best forgetting of all
+methods, MEANF −5.4 vs −3.0** — wins both axes, dataless. instr 25.1→38.0, coding held. 5/6
+variants beat top baseline. Full tracking in **`results/mergebench/EXPERIMENTS_routed.md`**.
+Code: `merge_task_arith_perexpert_multi` (`mergebench/llm_merge.py`); driver
+`scripts/mb_sweep_perexpert.{py,sh}`.
+
+**Round 1 refinement — DONE.** Champion `ta_pe_inst0.8_codi0.4` stays on top; whole neighborhood
+53.1–53.8 gate / −4.3…−5.0 forgetting = flat-topped optimum (not overfit). **Full protocol
+(limit=None, n_samples=10) CONFIRMS:** gate 53.2 (+1.4), 4-domain avg 53.9 vs 51.9 = **+2.0**
+(instr +12.6, coding −3.1, math/multiling flat). NOT a gate-limit artifact.
+
+## ⏸ PAUSED 2026-06-17 — only the SAFETY column remains (user is running another project)
+4 of 5 domains done + win secured. SAFETY (5th domain) is the last piece. ALL prereqs cleared,
+**but nothing is launched** (user paused). Full detail in `EXPERIMENTS_routed.md` SAFETY section.
+- Env `/work/pnag/envs/safety-eval` built & proven (smoke loaded champion in vLLM, generated all
+  prompts). Recipe in memory [[hpc_safety_eval_env_rhel7]].
+- WildGuard gating **✅ accepted & verified** (ProtikNag token gets HTTP 200 on the gated repo).
+- Baseline re-merges **in flight** (jobs 21584950 light / 21584951 heavy; slow GPFS I/O; should
+  self-complete). Champion weights already on disk.
+- **RESUME WITH:** `sbatch --array=0-13%4 scripts/mb_eval_safety_tier2.sh` (idx 13=champion ready
+  now). Then assemble final 5-domain table: `scripts/mb_make_tier2_table.py`.
+  Caveat: fork's eval.py IGNORES `--limit`, so runs are full-size; --time=08:00:00.
+
+**OPTIONAL later (not blocking the win):** buffer-LEARN {s_i} for a data-light variant; fold into
+curvature framework (per-expert importance × per-param curvature); multi-seed. Clean mb_merged
+weight dirs between rounds (eval results live in `results/mb_eval/`, weight dirs disposable).
+
+### Weight-space routing (Bets A/B) — FAILED/KILLED (kept for the paper)
+Bet A dominance-ROUTED per-param α (`pscale="consensus_routed"`) best 49.1 — cross-talk: pinning
+coding-owned params at α=1 doesn't protect coding. Bet B per-layer α killed by the entanglement
+diagnostic (coding task-vector energy FLAT ~22% across all 32 layers). KEY PAPER FINDING: at N=5
+the domains are entangled in WEIGHT space; no per-param/per-layer partition separates them — only
+the per-EXPERT axis does. Cache retained at `mb_cache/Llama-3.1-8B_l1e-3`.
+
+---
+
+## ⏩ PRIOR WORK — dataless win attempt via per-parameter scaling
 Started 2026-06-16. The dataless tie (global-alpha HTCL 51.3 vs Consensus 51.8)
 is capped by a SINGLE global `alpha` (instruction wants high, coding low). The
 fix being tested: **per-parameter update scaling** in `whc_diag`, derived
@@ -26,19 +90,33 @@ Code: `mergebench/llm_merge.py` (`pscale`,`alpha_max`,`beta`; + single-pass
 driver `scripts/mb_sweep_pscale.{py,sh}`, tests `tests/test_pscale.py` (all pass),
 ledger [`results/mergebench/EXPERIMENTS_pscale.md`]. Commits through `a65ba8d`.
 
-**Round 0 status (lam=1e-3, 5 variants: `whc_cons_l1e-3_am{3,5,8}`,
-`whc_coh_l1e-3_am5_b{1,2}`):**
-- ✅ Merge DONE — job 21583244 on BigMem node464, ~27 min, single-pass. Manifest:
-  `mb_merged/Llama-3.1-8B/pscale_manifest.txt`.
-- ⏳ Gate eval RUNNING — lm `21583200` (v100, gsm8k_cot+ifeval LIMIT=500),
-  code `21583201` (L40S, humanevalplus+mbppplus n_samples=5).
-- **To see the verdict** (re-run anytime; reads whatever eval JSON exists):
-  `python scripts/mb_sweep_table.py --config configs/mergebench_tier2.yaml \
-     --manifest mb_merged/Llama-3.1-8B/pscale_manifest.txt`
-- **Bar to beat:** Consensus 51.8 (top dataless), global-alpha tie 51.3.
-  **Kill gate (AAAI Phase 1): best gate < 51.0 → no dataless win, fold to the
-  analysis paper.** If consensus clears it: promote winner to full eval (LIMIT=0,
-  n=10, +multilingual+safety) + 3 seeds + 2nd base, per docs/AAAI_PLAN.md Phase 2-3.
+**Round 0 — DONE (verdict in).** 5 variants (`whc_cons_l1e-3_am{3,5,8}`,
+`whc_coh_l1e-3_am5_b{1,2}`). Best `cons_am3` gate **50.7 < 51.0 kill gate** (below the
+51.3 tie and Consensus 51.8). Mechanism validated though: consensus > coherence at every
+α_max; **instruction 32.4 = best of any method**. Full table + analysis in
+`results/mergebench/EXPERIMENTS_pscale.md`.
+
+**Forgetting table — NEW (user-requested).** `scripts/mb_forgetting_table.py`,
+forgetting_d = specialist_d − merged_d under the identical T1 protocol. Headline:
+**`cons_am3` has the LOWEST instruction forgetting (+14.6) of every method** (Consensus
++21.8, TIES +30.3). NB: the math specialist scores only 36.8 on gsm8k_cot completion
+format (chat-SFT format mismatch) so all merges "beat" it — math forgetting is negative
+for everyone, not a bug; instruction is the meaningful axis. Coding-axis cells pending
+`coding_expert` code eval (job 21584012; staged at `mb_ckpts/_stage_coding_expert` =
+expert weights + base tokenizer, to dodge the newer-`tokenizer.json` parse error).
+
+**Round 1 — DONE (verdict in, 2026-06-16). NO AGGREGATE DATALESS WIN → fold to analysis.**
+All Round-1 + coding_expert evals drained; both tables run on `pscale_r1_all.txt`. The α_max
+peak is now fully bracketed (am1=46.4, am2=51.3, am2.5=51.0–51.3, am3=50.3–50.7, am3.5=47.4,
+am4=45.3, am5=35.2): one broad plateau at **51.0–51.3**. Best variant
+`whc_cons_l3e-4_am2.5 = 51.3` **clears the 51.0 kill gate but only TIES the tuned global-alpha
+HTCL (51.3) and stays below baseline Consensus (51.8)** — instruction gains are exactly offset
+by mbpp+/heval+ coding loss along α_max. Lowering lam (3e-4) did not move the ceiling.
+**Decision: honor the design, no promotion to full eval.** Surviving contributions (the paper):
+(1) consensus > coherence at every α_max; (2) **lowest instruction forgetting of any method**
+(+14.6 at am3 vs Consensus +21.8 / TIES +30.3); (3) a dataless closed-form per-parameter
+dilution-undo with a fully-characterized accuracy/forgetting trade-off in α_max. Full Round-1
+gate + FINAL forgetting tables in `results/mergebench/EXPERIMENTS_pscale.md`.
 
 **If the pipeline died / needs re-running:**
 ```sh
